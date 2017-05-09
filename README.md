@@ -15,4 +15,4 @@ https://jamorham.github.io/#xdrip-plus
 
 Click on "Download latest APK" or choose the "Nightly Snapshots" for the very latest ones.
 
-Please note, that LimiTTer is NOT maintained by Abbott. It is a experimental DIY project. You will built your own individual LimiTTer. So you are responsible yourself for what you have built. I have opened this project here because it's a invitation for all developers out there to improve the LimiTTer.
+Please note, that LBridge code for LimiTTer is NOT maintained by Abbott. It is a experimental DIY project. You will built your own individual LimiTTer. So you are responsible yourself for what you have built. Dont make any medical decisions based on the results as they can be wrong!

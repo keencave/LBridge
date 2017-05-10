@@ -19,8 +19,8 @@ Please note, that LBridge code for LimiTTer is NOT maintained by Abbott. It is a
 
 Files:
 
-Lbridgev_PR_170302.ino, Lbridgev_170316: These files were provided in the LimiTTer gitter discussion group in march. Please refer to the chat protocols to get details on them.
+Lbridgev_PR_170302.ino: This version was provided in the LimiTTer gitter discussion group in march. Please refer to the chat protocols to get details on them.
 
-I used the 0316 version the last 2 months without problems in my live system.
+LBridgev_PR_170311.ino: Improved HM-11 handling. I used this version the last 2 months without problems in my live system. Stable and reliable. Published in gitter discussion group as version 0316. Please refer to the chat protocols to get more details.
 
-Lbridge_R_170510: Contains some improved handling for the HM-11 module in terms of timing/handling to ensure better BLE performance. I started testing.
+Lbridge_R_170510.ino: Minor changes, changed timings acessing the HM-11 module. Source code cleaned. Tested with the V547 version of HM-11. Works in my live system now.

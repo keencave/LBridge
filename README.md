@@ -23,4 +23,4 @@ Lbridgev_PR_170302.ino: This version was provided in the LimiTTer gitter discuss
 
 LBridgev_PR_170311.ino: Improved HM-11 handling. I used this version the last 2 months without problems in my live system. Stable and reliable. Published in gitter discussion group as version 0316. Please refer to the chat protocols to get more details.
 
-Lbridge_R_170510.ino: Minor changes, changed timings acessing the HM-11 module. Source code cleaned. Tested with the V547 version of HM-11. Works in my live system now.
+Lbridge_R_170510_3.ino: Tested with HM-11 (V547) and HM-17 (V117). Improved timings to reduce battery consumption. Fast handover between Wear Collection Service and xDrip+.

@@ -24,3 +24,5 @@ Lbridgev_PR_170302.ino: This version was provided in the LimiTTer gitter discuss
 LBridgev_PR_170311.ino: Improved HM-11 handling. I used this version the last 2 months without problems in my live system. Stable and reliable. Published in gitter discussion group as version 0316. Please refer to the chat protocols to get more details.
 
 Lbridge_R_170510_3.ino: Tested with HM-11 (V547) and HM-17 (V117). Improved timings to reduce battery consumption. Fast handover between Wear Collection Service and xDrip+.
+
+LBridge_Arduino_170627_0011.ino: Improved BLE connectivity. This can cost more battery power under bad BLE conditions. Removed LimiTTer data smoothing. Default name set to LimiTTer to avoid xDrip+ problems. Autocalibrate PWR DWN timer to get accurate 5 min spacing. Please use the latest Arduino IDE to compile this INO. 

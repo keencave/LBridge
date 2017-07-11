@@ -20,8 +20,10 @@
  * program configuration 
  */
 
-#define RFD                     // RFduino or Simblee platform?
-#define USE_DEAD_SENSOR         // we can test with a dead sensor
+#define RFD                     // uncomment for RFduino platform?
+//#define N_RFD                   // uncomment for Simblee platform
+
+#define N_USE_DEAD_SENSOR       // we can test with a dead sensor?
 
 #define N_SHOW_LIMITTER         // show original Limitter output
 #define N_DYNAMIC_TXID          // get TXID automatically

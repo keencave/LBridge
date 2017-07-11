@@ -32,7 +32,7 @@
 /* *** config #DEFINES **************************** */
 /* ************************************************ */
 
-#define USE_DEAD_SENSOR       // we can test with a dead sensor
+#define N_USE_DEAD_SENSOR       // we can test with a dead sensor
 #define N_HW_BLE              // detect BLE conn status with system LED pin connected to arduino pin 2
 #define N_DYNAMIC_TXID        // get TXID automatically
 #define AUTOCAL_WDT           // code for auto calibrating WDT timing

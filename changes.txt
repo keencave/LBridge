@@ -1,0 +1,34 @@
+0519
+	- added reset the system if "AT+NOTI" command goes fail
+	- added packet resend if no ACK, one time
+	- added jackhammer method, go to sleep short two times to send packet if no BLE connect or BLE lost
+	- extended BLE ON period to 60 s to match time window due to rewritten DexCollectionService
+	- added automatic TXID change with packet resend for Wear Collection Service error (solved now)
+0521	
+	- added AT+RESET after wake BLE up -> test for better Weasr Collection Service interoperability
+	- added AT+RENEW in configBLE() for reinitializing HM-1x modules by hand (uncomment only when you know what you do)
+0522	
+	- added serial command 'R' for sending AT+RENEW, enter command in first loop waiting for BLE connect
+	- added serial command 'U' for uploading HM-1x firmware, enter command in first loop waiting for BLE 
+		then close serial window, release serial port and open port with HM-1x tools to download (uncomment only when you know what you do)
+0625
+	- added 'X' command to display queued up readings
+	- removed BG data smoothing 
+	- added PWR DWN timer calibration to get exact 5 min time frames
+	- gotosleep() now in sec raster to get exact sleep times
+	- jackhammer method replaced by state machine, 2 times resending
+	- added automatic increase of BLE to 60 s after too much fails in BLE connect
+	- added 'V' command, battery voltage log in 2 h spacing
+	- BLE name set to "LimiTTer" to avoid backswithcing to "xdrip wixel" hardware source (manual NFC scanning only in LimiTTer mode)
+	- 5 times retry to do read_memory() in case of NFC fail
+0709
+	- added sensor lifetime transfer to xDrip+ by work around (every hour send current BG reading as LimiTTer type string)
+		not working with Wear Collection Service
+	- added statistics for battery consumption for Arduino mode, NFC mode and BLE mode
+0713
+	- modified NFC retry behavior, applied JoernLs mechanism to avoid possible sensor death maybe caused by LBridge
+	- only send valid BG readings for better APS loop behavior, removed test code sending 0 or 1 for NFC scan error detection
+	- no support for dead sensors as default (unwanted in APS loop systems)
+	- added hard stop of sending BG readings after exactly 14 days and 12 h
+	- changed spike suppression from +-50 to +-40(rare spikes observed in LBrige on Arduino and Simblee)
+	

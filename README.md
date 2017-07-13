@@ -29,5 +29,5 @@ LBridge_Arduino_170627_0011.ino: Improved BLE connectivity. This can cost more b
 
 LBridge_RFduino_0627_1750.ino: Lbridge code for RFduino or Simblee platform. Alpha release. Can be compiled for RFduino or Simblee platform. Voltage range adjusted to display more correct percentage of remaining battery. Choose LimiTTer device in xDrip+ as hardware source. Queue depth for 8 h of BG readings. Stable operation of BM019 (special thanks to @bertrooode). Devider of raw BG readings by 10. Lbridge runs on Mareks Transmiter2 device. Open issues: Operation togehter with SSW3, power savings for NFC.
 
-LBridge_Arduino_170713_1856.ino: Intended final release. Test ongoing, please refer to changes.txt. Added Sensor lifetime transfer to xDrip+. Default name set to "LimiTTer". Spike handling reactivated (+- 40 mg/dL). Dead senor dont transfer dasta after 14 days and 12 h.
+LBridge_Arduino_170713_1856.ino: Intended final release. Test ongoing, please refer to changes.txt. Added Sensor lifetime display in xDrip+. Default name set to "LimiTTer". Spike handling reactivated (+- 40 mg/dL). Dead sensor dont transfer data after 14 days and 12 h.
 

@@ -28,3 +28,6 @@ Lbridge_R_170510_3.ino: Tested with HM-11 (V547) and HM-17 (V117). Improved timi
 LBridge_Arduino_170627_0011.ino: Improved BLE connectivity. This can cost more battery power under bad BLE conditions. Removed LimiTTer data smoothing. Default name set to LimiTTer to avoid xDrip+ problems. Autocalibrate PWR DWN timer to get accurate 5 min spacing. Please use the latest Arduino IDE to compile this INO. 
 
 LBridge_RFduino_0627_1750.ino: Lbridge code for RFduino or Simblee platform. Alpha release. Can be compiled for RFduino or Simblee platform. Voltage range adjusted to display more correct percentage of remaining battery. Choose LimiTTer device in xDrip+ as hardware source. Queue depth for 8 h of BG readings. Stable operation of BM019 (special thanks to @bertrooode). Devider of raw BG readings by 10. Lbridge runs on Mareks Transmiter2 device. Open issues: Operation togehter with SSW3, power savings for NFC.
+
+LBridge_Arduino_170713_1856.ino: Intended final release. Test ongoing, please refer to changes.txt. Added Sensor lifetime transfer to xDrip+. Default name set to "LimiTTer". Spike handling reactivated (+- 40 mg/dL). Dead senor dont transfer dasta after 14 days and 12 h.
+

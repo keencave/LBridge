@@ -35,33 +35,7 @@
 #define RELEASE_VERSION
 #define LVERSION "0713_1856"    // version number
 
-#ifndef RELEASE_VERSION
-
-#define LNAME    "LimiTTerTVW"  // BLE name, must begin with "LimiTTer" to avoid misfunctions in xDrip+
-// important features 
-#define USE_DEAD_SENSOR       // we can test with a dead sensor
-#define USE_SMOOTHING         // use NFC data smoothing (LimiTTer method)?
-#define AUTOCAL_WDT           // code for auto calibrating WDT timing
-#define ATFAIL_REBOOT         // reboot system if AT+NOTI goes fail
-#define N_ATRESET             // do a AT+RESET after every BLE wakeup?
-#define TRANSFER_LIVETIME     // send sensor lifetime
-#define SHOW_VOLTAGE          // display voltage statistics, toogle init value, 'V' command
-#define SHOW_QUEUE            // display internal BG readings queue
-// less common settings for debug or test
-#define DB_PKT                // display BG queue, 'X' command
-#define N_SIMU_LIVETIME       // simulate sensor livetime
-#define N_HW_BLE              // detect BLE conn status with system LED pin connected to arduino pin 2
-#define N_DYNAMIC_TXID        // get TXID automatically
-#define N_XBEXT               // xbridge extended code
-#define N_DB_NFC_DATA         // debug NFC data
-#define SIMU_BG               // simulate BG readings from dead sensor, ramp curve
-#define N_SHOW_LIMITTER       // show original Limitter output
-// #define N_INDICATE_NFC_ERROR  // store misased NFC reading as BG value 1 to see it in xDrip+
-#define N_UPDATE_HM1X         // use with extreme care! update HM-11
-#define N_SHOW_MEM            // show remaining mem in read_memory
-#define DB_PROCESSSING        // extended debug output
-
-#else /* RELEASE_VERSION */
+#ifdef RELEASE_VERSION
 
 #define LNAME    "LimiTTer"   // BLE name, must begin with "LimiTTer" to avoid misfunctions in xDrip+
 // important features 
@@ -86,6 +60,32 @@
 #define N_UPDATE_HM1X         // use with extreme care! update HM-11
 #define N_SHOW_MEM            // show remaining mem in read_memory
 #define N_DB_PROCESSSING      // extended debug output
+
+#else /* RELEASE_VERSION */
+
+#define LNAME    "LimiTTerTVW"  // BLE name, must begin with "LimiTTer" to avoid misfunctions in xDrip+
+// important features 
+#define USE_DEAD_SENSOR       // we can test with a dead sensor
+#define USE_SMOOTHING         // use NFC data smoothing (LimiTTer method)?
+#define AUTOCAL_WDT           // code for auto calibrating WDT timing
+#define ATFAIL_REBOOT         // reboot system if AT+NOTI goes fail
+#define N_ATRESET             // do a AT+RESET after every BLE wakeup?
+#define TRANSFER_LIVETIME     // send sensor lifetime
+#define SHOW_VOLTAGE          // display voltage statistics, toogle init value, 'V' command
+#define SHOW_QUEUE            // display internal BG readings queue
+// less common settings for debug or test
+#define DB_PKT                // display BG queue, 'X' command
+#define N_SIMU_LIVETIME       // simulate sensor livetime
+#define N_HW_BLE              // detect BLE conn status with system LED pin connected to arduino pin 2
+#define N_DYNAMIC_TXID        // get TXID automatically
+#define N_XBEXT               // xbridge extended code
+#define N_DB_NFC_DATA         // debug NFC data
+#define SIMU_BG               // simulate BG readings from dead sensor, ramp curve
+#define N_SHOW_LIMITTER       // show original Limitter output
+// #define N_INDICATE_NFC_ERROR  // store misased NFC reading as BG value 1 to see it in xDrip+
+#define N_UPDATE_HM1X         // use with extreme care! update HM-11
+#define N_SHOW_MEM            // show remaining mem in read_memory
+#define DB_PROCESSSING        // extended debug output
 
 #endif /* RELEASE_VERSION */
 

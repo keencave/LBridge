@@ -30,5 +30,13 @@
 	- only send valid BG readings for better APS loop behavior, removed test code sending 0 or 1 for NFC scan error detection
 	- no support for dead sensors as default (unwanted in APS loop systems)
 	- added hard stop of sending BG readings after exactly 14 days and 12 h
-	- changed spike suppression from +-50 to +-40(rare spikes observed in LBrige on Arduino and Simblee)
+	- changed spike suppression from +-50 to +-40 (rare spikes observed in LBrige on Arduino and Simblee)
+0716
+	- changed NFC reading error hanbdling. Avoid too much fast NFC re-read to avoid possible possible sensordeath.
+	  Users reported sensordeath. Unsure about the reason, code changes may help (or not).
+	  Function: After NFC failure wait 3 s and try again, 3 times. In case of block read error try again 3 times
+	- spike suppression optimized, spike height is 40 mg/dl now.
+	- two methods detecting dead sensors: after 20880 min or if 5 consequtive identical BG readings
+	- removed debug/statistic code for voltage/queue to increase free RAM / avoid stack overflow
+	- BD reading queue depth increased to 5 hours
 	

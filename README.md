@@ -28,6 +28,12 @@ LBridge_Arduino_170716_1950.ino: release candidate, please use the latest Arduin
   - NFC read code modified to avoid possible sensordeaths due to massive re-read tries of BM019
   - autocalibrate PWR DWN timer to get accurate 5 min spacing
   - increased queue depth for BG readings to 5h
+  
+LBridge_RFduino_170729_1647.ino:
+  - added Spike (> +-40) detection and removal for loop usage
+  - added sensor shutdown detection. No new readings after 20880 min usage or 5 consequtive identical readings
+
+Old files:
 
 LBridge_RFduino_0627_1750.ino: work in progress
   - Lbridge code for RFduino or Simblee platform. Alpha release. Can be compiled for RFduino or Simblee platform. 
@@ -35,10 +41,8 @@ LBridge_RFduino_0627_1750.ino: work in progress
   - stable operation of BM019 (special thanks to @bertrooode)
   - devider of raw BG readings by 8.5 
   - open issues: 
-    - Operation togehter with SSW3
+    - Operation together with SSW3
     - power savings for NFC.
-
-Old files:
 
 Lbridge_R_170510_3.ino: 
   - tested with HM-11 (V547) and HM-17 (V117) 

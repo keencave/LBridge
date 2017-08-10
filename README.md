@@ -28,6 +28,7 @@ LBridge_Arduino_170716_1950.ino: release candidate, please use the latest Arduin
   - NFC read code modified to avoid possible sensordeaths due to massive re-read tries of BM019
   - autocalibrate PWR DWN timer to get accurate 5 min spacing
   - increased queue depth for BG readings to 5h
+  - bugfix for detecting dead sensors before end of lifetime
   
 LBridge_RFduino_170729_1647.ino:
   - added Spike (> +-40) detection and removal for loop usage

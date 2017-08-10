@@ -836,7 +836,7 @@ float Read_Memory(boolean *readDone)
     else
       shownGlucose = currentGlucose; // If all is going wrong, nevertheless take and show a value
 
-    if ((lastGlucose == currentGlucose) && (sensorMinutesElapse > 21000)) // Expired sensor check
+    if ( lastGlucose == currentGlucose ) // faulty sensor check (@NFCole)
       noDiffCount++;
 
     if (lastGlucose != currentGlucose) // Reset the counter

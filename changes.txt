@@ -39,4 +39,5 @@
 	- two methods detecting dead sensors: after 20880 min or if 5 consequtive identical BG readings
 	- removed debug/statistic code for voltage/queue to increase free RAM / avoid stack overflow
 	- BD reading queue depth increased to 5 hours
+	- 170810: changed dead sensor detection code at line #839 to detect faulty sensors before end of livetime (@NFCole)
 	

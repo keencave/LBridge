@@ -19,12 +19,12 @@ Please note, that LBridge code for LimiTTer is NOT maintained by Abbott. It is a
 
 Files:
 
-LBridge_RFduino_V09:
+LBridge_RFduino_V09, 4.2.2018:
   - general code cleanup
   - full 8h backfilling (get missed readings from the Libre Sensor like LibreAlarm after missing sensor)
   - changed dead sensor detection
   - shadow FRAM mechanism from @UPetersen
-  - switch off serial interface due ULP sleep phase, @Chaosbiber
+  - switch off serial interface due ULP sleep phase for better power consumption, @Chaosbiber
   - xbridge2 queue extended to 12 h (store BG readings which cannot be transmitted to xDrip+, bulk tranfer after reconnect)
   - cycle time of 1 min after system start to get faster the inital 4 readings (@FPV-UAV)
   

@@ -1,19 +1,14 @@
 /* 
-   LBridge scans the Freestyle Libre Sensor every 5 minutes
-   and sends the current BG readings to the xDrip+ Android app. 
+   It scans the Freestyle Libre Sensor every 5 minutes
+   and sends the data to the xDrip Android app. You can
+   see the data in the serial monitor of Arduino IDE, too.
+   If you want another scan interval, simply change the
+   sleepTime value. To work with Android 4 you have to disable
+   all lines containing a "for Android 4" comment and set the
+   sleep time to 36.
      
-   This sketch is based on the LimiTTer project from JoernL, the
-   sample sketches for the BM019 module from Solutions Cubed and the
-   protocol extensions done be savek-cc in the Wixel project.
-
-   This code replaces the LimiTTer code without any changes needed.
-
-   Hardwaresource in xDrip has to be set to "LimiTTer". Please use 
-   an xDrip+ version >= nightly build 2107/02/09
-  
-   The xBridge2 protocol is used to send BG readings to xDrip+. In case of failure it queues up not sended BG readings 
-   with the correct timestamp and send them within the next BLE connection. There should be no missed BG readings
-   when the LimiTTer is worn. Battery performance is improved compared to LimiTTer.
+   This sketch is based on a sample sketch for the BM019 module
+   from Solutions Cubed.
 
    Wiring for UNO / Pro-Mini:
 
@@ -28,20 +23,35 @@
    I/O: pin 6                       RX:  pin 4
 */
 
-/* ************************************************ */
-/* *** config #DEFINES **************************** */
-/* ************************************************ */
-
-#define USE_DEAD_SENSOR       // we can test with a dead sensor
-
-#define LNAME "LBridge"       // BLE name of the module
-#define LVERSION "0510_3"     // Versionnumber
+/*
+ * VWI, V 0.1, 03/2017
+ * LBridge, a LimiTTer with xBridge Protocol extension and power saving mods. This sketch is based on LimiTTer code (JoernL) 
+ * for NFC reading and sleep mode handling and a port of the xBridge2 protocol with queueing from savek-cc.
+ * Thanks to JoernL and savek-cc!
+ * 
+ * Hardwaresource in xDrip has to be set to "LimiTTer". Please use an xDrip+ version >= nightly build 2107/02/09
+ * 
+ * The xBridge2 protocol is used to send BG readings to xDrip+. In case of failure it queues up not sended BG readings 
+ * with the correct timestamp and send them within the next BLE connection. There should be no missed BG readings
+ * when LimiTTer is worn.
+ */
 
 #include <SPI.h>
 #include <SoftwareSerial.h>
 #include <avr/sleep.h> 
 #include <avr/power.h>
 #include <avr/wdt.h>
+
+/* ************************************************ */
+/* *** config #DEFINES *** */
+/* ************************************************ */
+
+#define N_SHOW_LIMITTER       // show original Limitter output
+#define USE_DEAD_SENSOR       // we can test with a dead sensor
+#define N_SEND_ERROR_COUNTERS // send error counter values via BLE
+#define N_HW_BLE              // detect BLE conn status with system LED pin connected to arduino pin 2
+#define N_DYNAMIC_TXID        // get TXID automatically
+#define N_AUTOCAL_WDT         // code for auto calibrating WDT timing
 
 /* ********************************************* */
 /* ********* LimiTTer stuff ******************** */
@@ -59,14 +69,19 @@ const int BLEPin = 3;   // BLE power pin.
 const int MOSIPin = 11;
 const int SCKPin = 13;
 
+#ifdef HW_BLE
+const int bleSysLedPin = 2; // connect to Sys LED pin of HM-1x
+#endif
+
 byte RXBuffer[24];
-byte NFCReady = 0;    // used to track NFC state
+byte NFCReady = 0;  // used to track NFC state
 byte FirstRun = 1;
 byte batteryLow;
 int batteryPcnt;
 long batteryMv;
 
-int sleepTime = 32;   // sleeptime in multipliers of 8 s
+// sleeptime in multipliers of 8 s
+int sleepTime = 32;
 
 int noDiffCount = 0;
 int sensorMinutesElapse;
@@ -76,8 +91,8 @@ float trend[16];
 SoftwareSerial ble_Serial(5, 6); // RX | TX
 
 /* ************************************************* */
-/* *** control stuff ******************************* */
-/* ************************************************* */
+/* *** VWI control stuff *** */
+/* ************************************************ */
 
 // global error counters
 unsigned long loop_count = 0;          // of main loop
@@ -92,12 +107,12 @@ unsigned long nfc_read_mem_errors = 0;
 unsigned long resend_pkts_events = 0;
 unsigned long queue_events = 0;
 
+#ifdef SEND_ERROR_COUNTERS
+static boolean send_error_counters_via_ble = 0;
+#endif
+
 static boolean show_ble = 1;        // what is shown in serial monitor
 static boolean show_state = 1;      // show print_state() infos, disabled ftm  
-
-boolean sensor_oor;                 // sensor out of range
-int ble_answer;                     // char from BLE reeived?
-boolean ble_lost_processing = 1;    // send AT+RESET after OK+LOST?
 
 // absolute progam run time in s counting also sleep() phase
 unsigned long prg_run_time = 0;     // in sec
@@ -112,7 +127,7 @@ float bleTime = 0;                  // average arduino+BLE time
 float bleNFCTime = 0;
 
 /* ************************************************************* */
-/* *** xBridge2 stuff ****************************************** */
+/* *** code ported form xBridge2.c *** */
 /* ************************************************************* */
 
 // defines the xBridge protocol functional level.  Sent in each packet as the last byte.
@@ -120,18 +135,19 @@ float bleNFCTime = 0;
 
 static volatile boolean do_sleep = 0;     // indicates we should go to sleep between packets
 static volatile boolean got_ack = 0;      // indicates if we got an ack during the last do_services.
-static volatile boolean got_txid = 0;     // indicates if we got a TXID packet during the last do_services.
 static volatile boolean dex_tx_id_set;    // indicates if the Dexcom Transmitter id (settings.dex_tx_id) has been set.  Set in doServices.
 static volatile boolean ble_connected;    // bit indicating the BLE module is connected to the phone.  Prevents us from sending data without this.
-static volatile boolean got_ok = 0;       // flag indicating we got OK from the HM-1x
-static unsigned long last_ble_send_time;
-static boolean crlf_printed = 0;
+#ifdef HW_BLE
+static volatile boolean hwble_connected;  // bit indicating the BLE module is connected to the phone.  Prevents us from sending data without this.
+#endif
+
+static volatile boolean got_ok;           // flag indicating we got OK from the HM-1x
 
 static volatile unsigned long pkt_time = 0;
 static volatile unsigned long abs_pkt_time = 0;
 static volatile unsigned long last_abs_pkt_time = 0;
 
-//define the maximum command string length for commands.
+//define the maximum command string length for USB commands.
 #define COMMAND_MAXLEN 40
 
 //structure of a USB command
@@ -143,13 +159,13 @@ typedef struct _command_buff
 
 static t_command_buff command_buff;
 
-typedef struct _Dexcom_packet // container for NFC readings on LimiTTer
+typedef struct _Dexcom_packet
 {
   unsigned long raw;
   unsigned long ms;
 } Dexcom_packet;
 
-#define DXQUEUESIZE 36        // 3 h of queue
+#define DXQUEUESIZE 36 // 3 h of queue
 
 typedef struct {
   volatile unsigned char read;
@@ -162,7 +178,7 @@ Dexcom_fifo Pkts;
 Dexcom_packet * DexPkt;
 
 // structure of a raw record we will send.
-typedef struct _nRawRecord
+typedef struct _RawRecord
 {
   unsigned char size; //size of the packet.
   unsigned char cmd_code; // code for this data packet.  Always 00 for a Dexcom data packet.
@@ -173,7 +189,7 @@ typedef struct _nRawRecord
   unsigned long dex_src_id;   //raw TXID of the Dexcom Transmitter
   unsigned long delay;
   unsigned char function; // Byte representing the xBridge code funcitonality.  01 = this level.
-} nRawRecord;
+} RawRecord;
 
 // _xBridge_settings - Type definition for storage of xBridge_settings
 // used for compatibility
@@ -189,8 +205,8 @@ xBridge_settings settings;
 unsigned long uart_baudrate[9] = {9600L,19200L,38400L,57600L,115200L,4800,2400,1200,230400L};
 
 /* ********************************************* */
-/* *** help functions ************************** */
-/* ********************************************* */
+/*  help functions */
+/* *********************************************** */
 
 // get free mem available
 extern unsigned int __bss_end;
@@ -214,7 +230,7 @@ unsigned long abs_millis(void)
 }
 
 /* **************************************************************** */
-/* ********* modified LimiTTer code ******************************* */
+/* modified LimiTTer code */
 /* **************************************************************** */
 
 // initialize the hardware
@@ -236,6 +252,10 @@ void setup() {
     digitalWrite(BLEPin, HIGH); // Disable this for Android 4
     ble_start_time = millis();
     ble_connected = 0;
+#ifdef HW_BLE
+    hwble_connected = 0;
+    pinMode(bleSysLedPin, INPUT);
+#endif
 
     // NFC part
 /* not needed here, is done in SPI.begin(), acoording to Bert Roode, 170302
@@ -247,7 +267,7 @@ void setup() {
 }
 
 /* *********************************************************** */
-/* *** NFC LimiTTer code, only small modifications *********** */
+/* LimiTTer code, only small modifications */
 /* *********************************************************** */
 
 void SetProtocol_Command() {
@@ -335,14 +355,12 @@ unsigned long ct;
     {
     print_state(F(" - Sensor in range ... OK"));
     NFCReady = 2;
-    sensor_oor = 0;
     }
   else
     {
     print_state(F(" - Sensor out of range"));
     NFCReady = 1;
-    nfc_inv_cmd_errors++;
-    sensor_oor = 1; 
+    nfc_inv_cmd_errors++; 
     }
  }
  
@@ -410,6 +428,9 @@ float Read_Memory() {
       pout[1] = hex[ *pin     & 0xF];
   }
   pout[0] = 0;
+#ifdef SHOW_LIMITTER
+  Serial.println(str);
+#endif
   trendValues += str;
  }
 
@@ -455,6 +476,10 @@ float Read_Memory() {
   }
   pout[0] = 0;
 
+#ifdef SHOW_LIMITTER
+  Serial.println(str);
+#endif
+
   elapsedMinutes += str;
     
   if (RXBuffer[0] == 128) // is response code good?
@@ -464,6 +489,12 @@ float Read_Memory() {
       sensorMinutesElapse = strtoul(hexMinutes.c_str(), NULL, 16);
       glucosePointer = strtoul(hexPointer.c_str(), NULL, 16);
 
+#ifdef SHOW_LIMITTER             
+      Serial.println(F(""));
+      Serial.print(F("Glucose pointer: "));
+      Serial.print(glucosePointer);
+      Serial.println(F(""));
+#endif      
       int ii = 0;
       for (int i=8; i<=200; i+=12) {
         if (glucosePointer == ii)
@@ -622,7 +653,7 @@ float Glucose_Reading(unsigned int val) {
 }
 
 /* ******************************************* */
-/* *** Vcc and sleep ************************* */
+/* *** Vcc and sleep *** */
 /* ******************************************* */
 
 int readVcc() {
@@ -656,7 +687,7 @@ void goToSleep(const byte interval, int time) {
   // say how long we want to sleep in absolute
   print_state(F(" - go to sleep for "));
   Serial.print((time)*8);
-  Serial.print(F(" s - "));
+  Serial.print(F("s"));
   waitDoingServices(100, 1);
   for (int i=0; i<time; i++) {
     MCUSR = 0;                         
@@ -674,6 +705,7 @@ ISR(WDT_vect)
 
 void lowBatterySleep() {
 
+//  shutNFCDown();
   shutBLEDown(0);
 
   print_state(F("Battery low! LEVEL: "));
@@ -722,17 +754,124 @@ void check_battery(void)
     {
       batteryLow = 0;
       wakeUp();
+//      wakeBLEUp();
       waitDoingServices(250, 1);
     }
   }
 }
 
 /* ************************************************ */
-/* *** BLE handling ******************************* */
+/* *** calibration of WDT oscillator *** */
+/* *** see http://forum.arduino.cc/index.php/topic,38046.0.html *** */
+/* *** and http://forum.arduino.cc/index.php?topic=49549.0 *** /
+/* ************************************************ */
+
+#ifdef AUTOCAL_WDT
+
+long timeSleep = 0;  // total time due to sleep
+float calibv = 0.93; // ratio of real clock with WDT clock
+volatile byte isrcalled = 0;  // WDT vector flag
+
+// Internal function: Start watchdog timer
+// byte psVal - Prescale mask
+void WDT_On (byte psVal)
+{
+ // prepare timed sequence first
+ byte ps = (psVal | (1<<WDIE)) & ~(1<<WDE);
+ cli();
+ wdt_reset();
+ /* Clear WDRF in MCUSR */
+ MCUSR &= ~(1<<WDRF);
+ // start timed sequence
+ WDTCSR |= (1<<WDCE) | (1<<WDE);
+ // set new watchdog timeout value
+ WDTCSR = ps;
+ sei();
+}
+
+// Internal function.  Stop watchdog timer
+void WDT_Off() {
+ cli();
+ wdt_reset();
+ /* Clear WDRF in MCUSR */
+ MCUSR &= ~(1<<WDRF);
+ /* Write logical one to WDCE and WDE */
+ /* Keep old prescaler setting to prevent unintentional time-out */
+ WDTCSR |= (1<<WDCE) | (1<<WDE);
+ /* Turn off WDT */
+ WDTCSR = 0x00;
+ sei();
+}
+
+// Calibrate watchdog timer with millis() timer(timer0)
+void calibrate() {
+ // timer0 continues to run in idle sleep mode
+ set_sleep_mode(SLEEP_MODE_IDLE); 
+ long tt1=millis();
+ doSleep(256);
+ long tt2=millis();
+ calibv = 256.0/(tt2-tt1);
+}
+
+// Estimated millis is real clock + calibrated sleep time
+long estMillis() {
+ return millis()+timeSleep;
+}
+
+// Delay function
+void sleepCPU_delay(long sleepTime) {
+ ADCSRA &= ~(1<<ADEN);  // adc off
+ PRR = 0xEF; // modules off
+
+ set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+ int trem = doSleep(sleepTime*calibv);
+ timeSleep += (sleepTime-trem);
+
+ PRR = 0x00; //modules on
+ ADCSRA |= (1<<ADEN);  // adc on
+}
+
+// internal function.  
+int doSleep(long timeRem) {
+ byte WDTps = 9;  // WDT Prescaler value, 9 = 8192ms
+
+ isrcalled = 0;
+ sleep_enable();
+ while(timeRem > 0) {
+   //work out next prescale unit to use
+   while ((0x10<<WDTps) > timeRem && WDTps > 0) {
+     WDTps--;
+   }
+   // send prescaler mask to WDT_On
+   WDT_On((WDTps & 0x08 ? (1<<WDP3) : 0x00) | (WDTps & 0x07));
+   isrcalled=0;
+   while (isrcalled==0) {
+     // turn bod off
+     MCUCR |= (1<<BODS) | (1<<BODSE);
+     MCUCR &= ~(1<<BODSE);  // must be done right before sleep
+     sleep_cpu();  // sleep here
+   }
+   // calculate remaining time
+   timeRem -= (0x10<<WDTps);
+ }
+ sleep_disable();
+ return timeRem;
+}
+
+// wdt int service routine
+ISR(WDT_vect) {
+ WDT_Off();
+ isrcalled=1;
+}
+
+#endif /* AUTOCAL_WDT */
+
+/* ************************************************ */
+/* *** BLE handling *** */
 /* ************************************************ */
 
 // init HM-1x module
-int setupBLE()
+void setupBLE()
 {
   int i;
 
@@ -744,7 +883,7 @@ int setupBLE()
     print_state(F(" - trying ")); Serial.print(uart_baudrate[i]);
     settings.uart_baudrate = uart_baudrate[i];
     ble_Serial.begin(uart_baudrate[i]);
-    send_string(F("AT"), 500);
+    send_string(F("AT"));
     if ( waitDoingServicesInterruptible(500,&got_ok,1) )
       break;
   }
@@ -752,82 +891,78 @@ int setupBLE()
   if(!got_ok){
     print_state(F("Could not detect baudrate of HM-1x, setting 9600"));
     settings.uart_baudrate=9600;
-    resetBLE();
-    return(0);
   }
-  else
-    got_ok = 0;
   
   print_state(F(" - baudrate set to "));
   Serial.print(settings.uart_baudrate);
   init_command_buff(&command_buff);
-  return(1);
 }
 
 // Configure the BlueTooth module with a name.
 // from LimiTTer setp() moved to here
 void configBLE() {
-  String name;
-  
-  send_string(F("AT"), 500);            // cut BLE connection to do commands
-  send_ble_string(F("AT+NOTI1"), 0);    // notify CONNECT and LOST
-  name = (String)"AT+NAME";
-  name += (String)F(LNAME);
-  send_ble_string(name, 0);             // set unique LimiTTer name, max 11 (not 12) chars
-  send_ble_string(F("AT+VERR?"), 0);    // look for correct BLE module - answer schould be "HMSoft V54x"
-                                        // to detect fake modules which starts with 115200
-  send_ble_string(F("AT+ADDR?"), 0);    // get MAC address
-  send_ble_string(F("AT+RESET"), 0);    // reset the module
-  waitDoingServices(500, 1);
-}
-
-void resetBLE(void)
-{
-  print_state(F(" - reset BLE, power down - 500 ms - power up - 500 ms"));
-  
-  digitalWrite(5, LOW); // Disable this for Android 4
-  digitalWrite(6, LOW); // Disable this for Android 4
-  digitalWrite(BLEPin, LOW); // Disable this for Android 4
-
-  waitDoingServices(500, 1);
-
-  digitalWrite(BLEPin, HIGH);
-  digitalWrite(5, HIGH);
-  digitalWrite(6, HIGH);
-
-  waitDoingServices(500, 1);
-
+  // set unique LimiTTer name, max 1 chars
+  if ( !ble_connected ) {
+    send_string(F("AT+NAMELBri0302b"));
+//  send_string(F("AT+NAMELBridge"));
+    waitDoingServices(100, 1);
+  }
+  // look for correct BLE module - answer schould be "HMSoft V54x"
+  // to detect fake modules which starts with 115200
+  if ( !ble_connected ) {
+    send_string(F("AT+VERR?"));
+    waitDoingServices(100, 1);
+  }
+  // get MAC address
+  if ( !ble_connected ) {
+    send_string(F("AT+ADDR?"));
+    waitDoingServices(100, 1);
+  }
+  // notify CONNECT and LOST
+  if ( !ble_connected ) {
+    send_string(F("AT+NOTI1"));
+    waitDoingServices(100, 1);
+  }
+  if ( !ble_connected ) {
+    send_string(F("AT+RESET"));
+    waitDoingServices(500, 1);
+  }
 }
   
 void wakeBLEUp(void) 
 {
-  String name;
-  
-  print_state(F(" - wake up - wait 40 s for BLE"));
-
-  ble_start_time = millis();
-  ble_connected = 0;
-  
   digitalWrite(BLEPin, HIGH);
   digitalWrite(5, HIGH);
   digitalWrite(6, HIGH);
-  // wait 1 s for initial connect, time for a fast BLE connect
+
+  ble_start_time = millis();
+  ble_connected = 0;
+#ifdef HW_BLE
+  hwble_connected = 0;
+#endif
+  
+  // wait 1 s for initial connect
   waitDoingServicesInterruptible(1000, &ble_connected, 1); 
-/*
-    if ( !ble_connected ) {
-      send_ble_string(F("AT+RESET"), 0);  // reset the BLE module
-      waitDoingServices(500, 1);
-    }
-*/
+
+  // AT+NOTI, HM-1X sends BLE connection status like OK-CONN or OK+LOST, not NULL terminated!
+  if ( !ble_connected ) {
+    send_string("AT+NOTI1");
+    waitDoingServices(100, 1);
+  }
+  if ( !ble_connected ) {
+    send_string("AT+RESET");
+    waitDoingServices(500, 1);
+  }
+
+  print_state(F(" - wake up - wait 40 s for BLE\r\n"));
   int i;
   for ( i = 0 ; i < 40 ; i++) {
     waitDoingServices(1000, 1);
     // typical CONN/LOST time difference is 1 - 2 s, mostly happens at the beginning of loop
-    // wait for this 2 s before break
+    // wait for this 3 s before break
     if ( ble_connected ) {
-//      print_state(F(" - connected, wait to manage CONN+LOST cyle then send packet(s)"));
-      // LOST on CONN mostly after 800 - 900 ms
-      waitDoingServices(2000, 1);
+      print_state(F(" - connected, wait 3 s to manage CONN+LOST cyle then send packet(s)"));
+      waitDoingServices(3000, 1);
       break;
     }
   }
@@ -836,25 +971,45 @@ void wakeBLEUp(void)
   if ( !ble_connected )
     ble_connect_errors++;
 
+  // send error counters to xDrip+ for future use
+#ifdef SEND_ERROR_COUNTERS
+  if ( ble_connected && send_error_counters_via_ble ) {
+    ble_Serial.print(F("E"));
+    ble_Serial.print(loop_count);
+    ble_Serial.print(F(" "));
+    ble_Serial.print(ble_connect_errors);
+    ble_Serial.print(F(" "));
+    ble_Serial.print(nfc_prot_set_cmd_errors);
+    ble_Serial.print(F(" "));
+    ble_Serial.print(nfc_inv_cmd_errors);
+    ble_Serial.print(F(" "));
+    ble_Serial.print(nfc_read_mem_errors);
+    ble_Serial.print(F(" "));
+    ble_Serial.print(resend_pkts_events);
+    ble_Serial.print(F(" "));
+    ble_Serial.print(queue_events);
+    send_error_counters_via_ble = 0;
+  }
+#endif
 }
 
 void shutBLEDown(boolean quit_ble)
 {
   // cut BLE conection via AT command
-//  if ( quit_ble && ble_connected ) {
-  // for connected and lost state - we want to see HM-11 answer
-  if ( quit_ble ) {
+  if ( quit_ble && ble_connected ) {
     print_state(F(" - disconnect BLE, wait 2 s then sleep"));
-    ble_lost_processing = 0;
-    send_string(F("AT"), 500);
+    send_string("AT");
     waitDoingServices(1500, 1);
-    ble_lost_processing = 1;
   }
+ 
   digitalWrite(5, LOW); // Disable this for Android 4
   digitalWrite(6, LOW); // Disable this for Android 4
   digitalWrite(BLEPin, LOW); // Disable this for Android 4
 
   ble_connected = 0;
+#ifdef HW_BLE
+  hwble_connected = 0;
+#endif
 }
 
 /* ************************************************** */
@@ -882,6 +1037,9 @@ void configNFC(void)
 
 void wakeNFCUp(void)
 {
+// print_state(F(" - mem avail "));
+// Serial.print(freeMemory());
+
   digitalWrite(NFCPin1, HIGH);
   digitalWrite(NFCPin2, HIGH);
   digitalWrite(NFCPin3, HIGH);
@@ -904,6 +1062,9 @@ void wakeNFCUp(void)
 
 void shutNFCDown(void)
 {
+// print_state(F(" - mem avail "));
+// Serial.print(freeMemory());
+ 
   SPI.end();
 
   digitalWrite(MOSIPin, LOW);
@@ -923,9 +1084,6 @@ void send_data(unsigned char *msg, unsigned char len)
 {
   unsigned char i = 0;
 
-  last_ble_send_time = millis();
-  crlf_printed = 0;
-
   for( i = 0; i < len; i++ )
     ble_Serial.write(msg[i]);
 
@@ -941,66 +1099,14 @@ void send_data(unsigned char *msg, unsigned char len)
 }
 
 // due to Arduino cast problems between String and char * use extra function
-int send_ble_string(String cmd, boolean connect_state)
+void send_string(String cmd)
 {
-  int i;
-  unsigned long now;
-  boolean timeout;
-  
-  if ( !connect_state ) {
-    for ( i = 0 ; i < 3 ; i++ ) {
-      if ( show_ble ) {
-        print_state(F(" ->("));
-        Serial.print(cmd);
-        Serial.print(F(") - "));
-      }
-
-      last_ble_send_time = millis();  // beatyfing output
-      crlf_printed = 0;
-
-      // send the command via BLE
-      ble_Serial.print(cmd);
-  
-      now = millis();
-      ble_answer = 0;
-      timeout = 1;
-      
-      // wait max. 2 s to get an answer
-      while ( (millis() - now) < 2000 ) {
-        waitDoingServices(30, 1);
-        if ( ble_answer == 2 ) {
-          ble_answer = 0;
-          timeout = 0;
-          break;
-        }
-      }
-      // wait additional 500 ms to be sure for next command
-      waitDoingServices(500, 1);
-      
-      if ( timeout ) {
-        resetBLE();
-      }
-      else {
-        Serial.print(F(" - "));
-        return(1);
-      }
-    }
-    return(0);
-  }
-  return(0);
-}
-
-void send_string(String cmd, int dly)
-{
-  last_ble_send_time = millis();
-  crlf_printed = 0;
   ble_Serial.print(cmd);
   if ( show_ble ) {
     print_state(F(" ->("));
     Serial.print(cmd);
-    Serial.print(F(") - "));
+    Serial.println(F(")"));
   }
-  waitDoingServices(dly, 1);
 }
 
 // send a beacon with the TXID
@@ -1030,7 +1136,7 @@ int init_command_buff(t_command_buff* pCmd)
 }
 
 //decode a command received ??
-int commandBuffIs(const char* command)
+int commandBuffIs(char* command)
 {
   unsigned char len = strlen(command);
   if(len != command_buff.nCurReadPos)
@@ -1038,16 +1144,13 @@ int commandBuffIs(const char* command)
   return( memcmp(command, command_buff.commandBuffer, len)==0 );
 }
 
-// decode incoming serial or BLE data commands
+// decode incoming serial/USB or BLE data commands
 int doCommand(void)
 {
   // TXID packet?
   if(command_buff.commandBuffer[1] == 0x01 && command_buff.commandBuffer[0] == 0x06)
   {
     memcpy(&settings.dex_tx_id, &command_buff.commandBuffer[2],sizeof(settings.dex_tx_id));
-    got_txid = 1;
-    print_state(F(" - got a TXID packet, new TXID is - "));
-    Serial.print(settings.dex_tx_id);
     // send back the TXID we think we got in response
     return(0);
   }
@@ -1077,11 +1180,9 @@ int doCommand(void)
       print_state(F(" - S command - show states"));
     }
   }  // "OK+..." answer from BLE?
-  String cmd2proof = F("OK");
-  if( commandBuffIs(cmd2proof.c_str()) ) 
+  if( commandBuffIs("OK") ) 
   {
-    got_ok = 1;
-//    print_state(F(" - got_ok = 1"));
+    got_ok = 1;;
     return(0);
   }
   // we don't respond to unrecognised commands.
@@ -1098,13 +1199,46 @@ t_pattern okstr[3] = {
   { "OK+ERRS" }   // message sent via BLE to force LBridge to send error counters via BLE
 };
 
+#ifdef HW_BLE
+// detect BLE connection status via SysLED pin on HM-1x module
+void bleConnectMonitor() {
+  //to store the time we went high
+  static unsigned long timer;
+  //to store P1_2 the last time we looked.
+  static boolean last_ble_check;
+  boolean last_ble;
+
+  last_ble = hwble_connected;
+  // if P1_2 is high, ble_connected is low, and the last_ble_check was low, sav the time and set last_ble_check.
+  if ( digitalRead(bleSysLedPin) && !hwble_connected && !last_ble_check) {
+    timer = millis();
+    last_ble_check = 1;
+  // otherwise if P1_2 goes low, and ble_connected is high, we cancel everything.
+  } else if ( !digitalRead(bleSysLedPin) ) {
+    hwble_connected =0;
+    last_ble_check = 0;
+  //otherwise, if P1_2 has been high for more than 550ms, we can safely assume we have ble_connected, so say so.
+  } else if ( digitalRead(bleSysLedPin) && last_ble_check && ((millis() - timer)>550)) {
+    hwble_connected = 1;
+  }
+
+  // show if BLE state has changed here
+  if ( last_ble != hwble_connected ) {
+    print_state(F(" - ***** HW BLE "));
+    if ( hwble_connected )
+      Serial.print(F("connected"));
+    else
+      Serial.print(F("lost"));
+  }
+}
+#endif /* HW_BLE */
+
 // detect BLE connection status via software / AT commands
 boolean monitor_ble(unsigned char b)
 {
   static int bi = 0;
   int i, c_found = 0;
 
-  // print char in readable form
   if ( show_ble ) {
     if ( b >= ' ' && b < 128 ) {
       Serial.write(b);
@@ -1115,7 +1249,6 @@ boolean monitor_ble(unsigned char b)
     }
   }
 
-  // look in all 3 patterns
   for ( i = 0 ; i < 3 ; i++) {
     if ( b == okstr[i].pattern[bi] )
       c_found |= 1;
@@ -1123,12 +1256,8 @@ boolean monitor_ble(unsigned char b)
   
   if ( c_found )
     bi++;
-  else {
-    if ( b == 'O' )   // OKOK... sequence?
-      bi = 1;
-    else
-      bi = 0;
-  }
+  else
+    bi = 0;
     
   if ( bi == 7 ) { // one of pattern complete
     bi = 0;
@@ -1147,7 +1276,11 @@ boolean monitor_ble(unsigned char b)
         Serial.print(F(" ms"));
         return(1);
     } else if ( b == okstr[2].pattern[6] ) {
-      // for future use
+#ifdef SEND_ERROR_COUNTERS
+        send_error_counters_via_ble = 1;
+        print_state(F(" - send error counters after next wakeup"));
+        return(1);
+#endif
     }
   }
   return(0);
@@ -1183,18 +1316,6 @@ int controlProtocolService()
   //while we have something in either buffer,
   while( (Serial.available() || ble_Serial.available()) && command_buff.nCurReadPos < COMMAND_MAXLEN) {
 
-    if ( ble_answer == 0 ) {
-//      Serial.print("-1-");      
-      ble_answer = 1;
-    }
-
-    // BLE receive which is not 1 s after last sending?
-    if ( ((millis() - last_ble_send_time) > 1000) && !crlf_printed ) {
-//        print_state(F(" - CRLF printed"));
-        Serial.print(F("\r\n"));
-        crlf_printed = 1;
-    }
-
     if ( ble_Serial.available() )
       monitor_ble( b = ble_Serial.read() );
     else
@@ -1221,20 +1342,8 @@ int controlProtocolService()
           return(nRet);
       }
     }
-
-    if ( crlf_printed ) {
-      crlf_printed = 0;
-      last_ble_send_time = millis();
-    }
-
     // otherwise, if the command is not up to the maximum length, add the character to the buffer.
   }
-
-  if ( ble_answer == 1 ) {
-//    Serial.print("-2-");
-    ble_answer = 2;
-  }
-  
   if ( command_buff.nCurReadPos ){
     //re-initialise the command buffer for the next one.
     init_command_buff(&command_buff);
@@ -1247,10 +1356,72 @@ int controlProtocolService()
 int doServices(unsigned char bWithProtocol)
 {
   dex_tx_id_set = (settings.dex_tx_id != 0);
+#ifdef HW_BLE
+  bleConnectMonitor();
+#endif
   if(bWithProtocol)
     return(controlProtocolService());
   return(1);
 }
+
+#ifdef DYNAMIC_TXID
+//format an array to decode the dexcom transmitter name from a Dexcom packet source address.
+char SrcNameTable[32] = { '0', '1', '2', '3', '4', '5', '6', '7',
+              '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+              'G', 'H', 'J', 'K', 'L', 'M', 'N', 'P',
+              'Q', 'R', 'S', 'T', 'U', 'W', 'X', 'Y' };
+
+char dex_addr[6];
+
+// convert the passed uint32 Dexcom source address into an ascii string in the passed char addr[6] array.
+char *dexcom_src_to_ascii(unsigned long src)
+{
+  //each src value is 5 bits long, and is converted in this way.
+  dex_addr[0] = SrcNameTable[(src >> 20) & 0x1F];   //the last character is the src, shifted right 20 places, ANDED with 0x1F
+  dex_addr[1] = SrcNameTable[(src >> 15) & 0x1F];   //etc
+  dex_addr[2] = SrcNameTable[(src >> 10) & 0x1F];   //etc
+  dex_addr[3] = SrcNameTable[(src >> 5) & 0x1F];    //etc
+  dex_addr[4] = SrcNameTable[(src >> 0) & 0x1F];    //etc
+  dex_addr[5] = 0;  //end the string with a null character.
+  return (char *)dex_addr;
+}
+
+unsigned long asciiToDexcomSrc(char addr[6])
+{
+  // prepare a uint32 variable for our return value
+  unsigned long src = 0;
+  // look up the first character, and shift it 20 bits left.
+  src |= (getSrcValue(addr[0]) << 20);
+  // look up the second character, and shift it 15 bits left.
+  src |= (getSrcValue(addr[1]) << 15);
+  // look up the third character, and shift it 10 bits left.
+  src |= (getSrcValue(addr[2]) << 10);
+  // look up the fourth character, and shift it 50 bits left.
+  src |= (getSrcValue(addr[3]) << 5);
+  // look up the fifth character
+  src |= getSrcValue(addr[4]);
+  //printf("asciiToDexcomSrc: val=%u, src=%u\r\n", val, src);
+  return src;
+}
+
+/* getSrcValue - function to determine the encoding value of a character in a Dexcom Transmitter ID.
+Parameters:
+srcVal - The character to determine the value of
+Returns:
+uint32 - The encoding value of the character.
+*/
+unsigned long getSrcValue(char srcVal)
+{
+  unsigned char i = 0;
+
+  for(i = 0; i < 32; i++)
+  {
+    if (SrcNameTable[i]==srcVal) break;
+  }
+  //printf("getSrcVal: %c %u\r\n",srcVal, i);
+  return i & 0xFF;
+}
+#endif /* DYNAMIC_TXID */
 
 // use function instead of macro, use pointer to flag, volatile boolen <var> dont work on Arduino!!!
 int waitDoingServicesInterruptible(unsigned long wait_time, volatile boolean *break_flag, unsigned char bProtocolServices)
@@ -1311,6 +1482,22 @@ int get_nfc_reading(float *ptr)
     else if ( NFCReady == 2 ) {
       act_glucose = Read_Memory();
       nfc_scan_count++;
+#ifdef SHOW_LIMITTER
+      Serial.print(F("\r\nGlucose level: "));
+      Serial.println(act_glucose);
+      Serial.println(F("15 minutes-trend: "));
+      for (int i=0; i<16; i++)
+        Serial.println(trend[i]);
+      Serial.print(F("Battery level: "));
+      Serial.print(batteryPcnt);
+      Serial.println(F("%"));
+      Serial.print(F("Battery mVolts: "));
+      Serial.print(batteryMv);
+      Serial.println(F("mV"));
+      Serial.print(F("Sensor lifetime: "));
+      Serial.print(sensorMinutesElapse);
+      Serial.print(F(" minutes elapsed"));
+#endif /* SHOW_LIMITTER */
       // only for showing package content
       *ptr = act_glucose;
       return(1);
@@ -1323,6 +1510,8 @@ int get_nfc_reading(float *ptr)
 // wait for a NFC reading and put it into Dexcom_packet
 int get_packet(Dexcom_packet* pPkt)
 {
+  // store the current wixel milliseconds so we know how long we are waiting.
+  unsigned long start = millis();
   // set the return code to timeout indication, as it is the most likely outcome.
   float glucose;
 
@@ -1330,9 +1519,19 @@ int get_packet(Dexcom_packet* pPkt)
     pPkt->raw = glucose*1000;    // use C casting for conversion of float to unsigned long
     pkt_time = millis();
     pPkt->ms = abs_millis();
+/*
+    print_state(F(" - packet read at "));
+    Serial.print(pPkt->ms/1000);
+    Serial.print(F(" s"));
+*/
     if ( abs_pkt_time != 0 )
       last_abs_pkt_time = abs_pkt_time;
     abs_pkt_time = pPkt->ms;
+/*
+    print_state(F(" - last packet read "));
+    Serial.print((abs_millis() - last_abs_pkt_time)/1000);
+    Serial.print(F(" s before"));
+*/    
     return(1);
   }
   else
@@ -1343,7 +1542,7 @@ int get_packet(Dexcom_packet* pPkt)
 //function to format and send the passed Dexom_packet.
 int print_packet(Dexcom_packet* pPkt)
 {
-  nRawRecord msg;
+  RawRecord msg;
 
   //prepare the message
   msg.size = sizeof(msg);
@@ -1358,6 +1557,11 @@ int print_packet(Dexcom_packet* pPkt)
 
   if ( !ble_connected )
     return(0);
+/*
+  print_state(F(" - sending packet with a delay of "));
+  Serial.print(msg.delay/1000);
+  Serial.print(F(" s"));
+*/
   send_data( (unsigned char *)&msg, msg.size);
 
   return(1);
@@ -1374,59 +1578,80 @@ void print_state(String str)
 // main processing loop
 void loop(void)
 {   
-  int i;
   unsigned long var_sleepTime;
-  unsigned long queuesendtime;
   boolean evtflg1;
   boolean evtflg2;
   int get_packet_result;
 
   waitDoingServices(2000, 1);
 
-  print_state(F(" - ****************************************************************"));
+  print_state(F(" - ************************"));
   print_state(F(" - *** LBridge starting ***"));
-  print_state(F(" - *** Name: ")); Serial.print(F(LNAME)); Serial.print(F(" ***"));
-  print_state(F(" - *** VERSION: ")); Serial.print(F(LVERSION)); Serial.print(F(" ***"));
-  print_state(F(" - *** mem: ")); Serial.print(freeMemory()); Serial.print(F(" ***"));
+  print_state(F(" - *** mem: "));
+  Serial.print(freeMemory()); Serial.print(F(" ***"));
+  print_state(F(" - ************************"));
 
   loop_start_time = millis();             // log the current time
   init_command_buff(&command_buff);       //initialise the command buffer
   
-  for ( i = 0 ; i < 3 ; i++ ) {
-    if ( setupBLE() )                 // Open the UART and initialize HM-1x module
-      break;
-  }
-  
+  setupBLE();                 // Open the UART and initialize HM-1x module
   waitDoingServices(2000, 1); // wait for possible OK+LOST
   configBLE();                // configure the BLE module
   configNFC();                // initialize and configure the NFC module
 
   // wait for a BLE connection to xDrip to get a TXID if needed
-  print_state(F(" - initial wake up, waiting 40s fixed for BLE / time for a xDrip+ BT scan if needed"));
+  print_state(F(" - initial wake up, waiting 40s fixed for BLE / time for a xDrip+ BT scan if needed\r\n"));
   waitDoingServices(40000, 1);
 
   // if BLE connected wait some time to get an answer for TXID
   if ( ble_connected )
     waitDoingServices(3000, 1);
 
+#ifdef DYNAMIC_TXID
+  // if dex_tx_id is zero, we do not have an ID to filter on.  So, we keep sending a beacon every 5 seconds until it is set.
+  print_state(F(" - testing TXID"));
+  settings.dex_tx_id = 0xFFFFFFFF;
+  // should we ask for a TXID?
+  if(settings.dex_tx_id >= 0xFFFFFFFF) 
+    settings.dex_tx_id = 0;
+  // instead of save current TXID to EEPROM get it every time from xDrip using the Beacon mechanism
+  while(settings.dex_tx_id == 0) {
+    print_state(F(" - no TXID. Sending beacon"));
+    // wait until we have a BLE connection
+//    while(!ble_connected) doServices(1);
+    if ( !waitDoingServicesInterruptible(40000, &ble_connected, 1) && (settings.dex_tx_id != 0) )
+      break;
+    waitDoingServices(1000, 1);
+    //send a beacon packet
+    sendBeacon();
+    // set flag dex_tx_id_set 
+    doServices(0);
+    //wait 5 seconds, beatify output
+    waitDoingServicesInterruptible(5000, &dex_tx_id_set, 1);
+  }
+
+  print_state(F(" - new TXID is ")); Serial.print(settings.dex_tx_id, HEX); Serial.print(F(" ("));
+  // and show first 5 char from the TXID setting in xDrips menue
+  Serial.print(dexcom_src_to_ascii(settings.dex_tx_id)); Serial.print(F(")"));
+
+#else
   settings.dex_tx_id = 0xA5B1AE;    // -> "ABCDE" xBridge Wixel default
+#endif /* DYNAMIC_TXID */
 
   // initialize to empty queue
   Pkts.read = 0;
   Pkts.write = 0;
-  print_state(F(" - entering main loop"));
 
-  got_txid = 0;
+  print_state(F(" - entering main loop"));
 
   while (1)
   {
     check_battery();    // check for low battery and go to sleep here if wrong
+//    print_state(F(" - wake up NFC"));
     wakeNFCUp();
     get_packet_result = get_packet(&Pkts.buffer[Pkts.write]);
+//    print_state(F(" - shut NFC down"));
     shutNFCDown();
-
-    if ( sensor_oor )
-      print_state(F(" - sensor out of range"));
 
     if( get_packet_result ) {
       print_state(F(" - got packet, stored at position "));
@@ -1448,37 +1673,35 @@ void loop(void)
       print_state(F(" - did not receive a pkt with "));
       Serial.print(Pkts.write-Pkts.read);
       Serial.print(F(" pkts in queue"));
+      if ( ble_connected ) 
+        sendBeacon();
       do_sleep = 1; // no NFC reading, go to sleep to save battery
     }
 
-    if ( (loop_count > 0) && !sensor_oor ) {
+    if ( loop_count > 0 ) {
+//      print_state(F(" - wake up BLE"));
       wakeBLEUp();
     }
 
-    if ( (Pkts.read != Pkts.write) && !sensor_oor ) { // if we have a packet
+    if (Pkts.read != Pkts.write) { // if we have a packet
       // we wait up to 40 s for BLE connect
       while (!ble_connected && ((millis() - pkt_time) < 40000 )) {
         print_state(F(" - packet waiting for ble connect"));
         if ( waitDoingServicesInterruptible(10000, &ble_connected, 1) ) {
-          print_state(F(" - connected, wait before sending the packet"));
-          waitDoingServices(2000, 1);
+          print_state(F(" - connected, wait 3 s before sending the packet"));
+          waitDoingServices(3000, 1);
         }
       }
+
       evtflg1 = 0;
       evtflg2 = 0;
       // we got a connection, so send pending packets now - at most for two minutes after the last packet was received
       // wait enough time to empty the complete queue!
-      queuesendtime = 1000L;  // calculate max send time if queue is completely full
-      queuesendtime *= (DXQUEUESIZE+1);   // assuming one entry will cost 1 s
-      while ((Pkts.read != Pkts.write) && ble_connected && ((millis() - pkt_time) < queuesendtime )) {
-
+      while ((Pkts.read != Pkts.write) && ble_connected && ((millis() - pkt_time) < ((DXQUEUESIZE+1)*1000) )) {
         got_ack = 0;
-        got_txid = 0;
 
-        print_state(F(" - send packet at position ")); Serial.print(Pkts.read);
         print_packet(&Pkts.buffer[Pkts.read]);
 
-//        print_state(F(" - wait for ACK"));
         // wait 10 s for ack
         int j;
         for ( j = 0 ; j < 10 ; j++ ) {
@@ -1489,7 +1712,7 @@ void loop(void)
           }
         }
         
-        if ( got_ack ) {
+        if (got_ack) {
           print_state(F(" - got ack for read position "));
           Serial.print(Pkts.read); Serial.print(F(" while write is "));
           Serial.print(Pkts.write); Serial.print(F(", incrementing read to "));
@@ -1500,13 +1723,6 @@ void loop(void)
             evtflg1 = 1;
             queue_events++;
           }
-        }
-        else if  ( got_txid ) {
-            // workaround for Sony Smartwatch 3 running wear collection service
-            // there is an alternating TXID setting in both device (nightly 170512)
-            // when switching simply resend packet with new TXID
-            print_state(F(" - got new TXID, packet resend with new TXID"));
-            got_txid = 0;
         }
         else {
           print_state(F(" - no ack received, try again next wakeup"));
@@ -1564,13 +1780,13 @@ void loop(void)
         bleTime += loop_time;
       }
       else {
-        avg_sleepTime = 0;
-        bleTime = 0;
+        avg_sleepTime = var_sleepTime*8;
+        bleTime = loop_time;
       }
       print_state(F(" - avg. sleep time: "));  Serial.print(avg_sleepTime/loop_count);  
       Serial.print(F(" s, "));
       Serial.print(F("ProMini+BLE On: "));  Serial.print((bleTime/loop_count)/1000);  
-      Serial.print(F(" s"));
+      Serial.println(F(" s"));
 
       wakeUp();
       waitDoingServices(250,1);

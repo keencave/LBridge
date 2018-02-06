@@ -1,4 +1,4 @@
- /*
+/*
  * LBridge for RFduino / Simblee
  * 
  * BLE Transmitter for read blood glucose from the Freestyle Libre Sensor via NFC and transfer to 
@@ -30,6 +30,9 @@
  *  - 8 h backfilling - send per default last 8 h, xDrip+ will only accept and display values which are missing
  *  - shadow FRAM added (@UPetersen)
  *  - system, start with faster cycle time @FPV-UAV
+ * V0.9.01
+ *  - modifications due to @UPetersen s code review
+ *  - bit mask for raw BG data 13 bits = 0x1FFF
  */
 
 /* ********************* program configuration options **********************/
@@ -61,7 +64,8 @@
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_DATETIME "180203_2134" // date_time
+#define LB_MINOR_VERSION ".01"  // indicates minor version
+#define LB_DATETIME "180206_1837" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
@@ -151,7 +155,7 @@ bool BTconnected = false;
 
 unsigned long startMinutesSinceStart = 0;
 unsigned long startMillisSinceStart = 0;
-unsigned long minutesSinceProgramStart;
+unsigned long minutesSinceProgramStart = 0;
 
 uint16_t lastGlucose = 0;
 uint16_t currentGlucose = 0;
@@ -257,7 +261,7 @@ typedef struct  __attribute__((packed))
   uint16_t trend[16];
   float trendTemperature[16];
   uint16_t history[32];
-  float historyTemperature[16];
+  float historyTemperature[32];
 } SensorDataDataType;
 
 IDNDataType idnData;
@@ -340,7 +344,7 @@ void setup()
   Serial.print(" =====================================================================================================");
 
   print_statef("LBridge starting");
-  Serial.printf("\r\n\tBLE Name: %s, Version: %s from %s", LB_NAME, LB_VERSION, LB_DATETIME);
+  Serial.printf("\r\n\tBLE Name: %s, Version: %s%s from %s", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
   Serial.printf("\r\n\tRAM used: %d, , Flash used: %d", ramUsed(), flashUsed());
   Serial.printf("\r\n\tQueue size: %d (%d h)", DXQUEUESIZE, DXQUEUESIZE/12);
   Serial.printf("\r\n\tCompiled Options:");
@@ -958,6 +962,7 @@ bool readSensorData()
 
   if ( !use_shadowfram ) {
     clearBuffer(dataBuffer);
+    // @UPetersen: Footer sollte nur einmal gelesen werden, da er nicht verwendet wird
     for (int i = 0; i < 43; i++) {
       resultCode = ReadSingleBlockReturn(i);
       if (resultCode != 0x80 && trials < maxTrials) {
@@ -1011,6 +1016,7 @@ bool readSensorData()
     readBody(RXBuffer, &sensor, SS_PIN);
     if (!checkCRC16(sensor.fram, (byte) 1)) readBody(RXBuffer, &sensor, SS_PIN); // one more time
 
+    // @UPetersen: footer will not be used, shall only be read once at program start
     readFooter(RXBuffer, &sensor, SS_PIN);
     if (!checkCRC16(sensor.fram, (byte) 2)) readFooter(RXBuffer, &sensor, SS_PIN); // one more time
 
@@ -1738,7 +1744,10 @@ void decodeSensorBody()
     if (index < 4) index = index + 96;
     for (int k = index; k < index + 6; k++) 
       pomiar[k - index] = sensorDataBody[k];
-    sensorData.trend[i] = ((pomiar[1] << 8) & 0x0F00) + pomiar[0];
+//    sensorData.trend[i] = ((pomiar[1] << 8) & 0x0F00) + pomiar[0];
+    // 13 Bits for raw BG reading are valid with the Libre sensor
+    // meanwhile also hardcoded in xDrip+ (manual scan via NFC and blucon)
+    sensorData.trend[i] = ((pomiar[1] << 8) & 0x1F00) + pomiar[0];
   	sensorData.trendTemperature[i] = decode_temperature(&pomiar[3]);
 
     // print rawdata
@@ -1896,7 +1905,7 @@ void setupBluetoothConnection()
   RFduinoBLE.advertisementData = "data";
   RFduinoBLE.customUUID = "c97433f0-be8f-4dc8-b6f0-5343e6100eb4";
 #endif /* USE_XBRIDGE2 */
-  RFduinoBLE.advertisementInterval = MILLISECONDS(300);
+  RFduinoBLE.advertisementInterval = MILLISECONDS(500);
   RFduinoBLE.txPowerLevel = 4;
   RFduinoBLE.begin();
 #else /* RFD */
@@ -1910,7 +1919,7 @@ void setupBluetoothConnection()
   SimbleeBLE.advertisementData = "data";
   SimbleeBLE.customUUID = "c97433f0-be8f-4dc8-b6f0-5343e6100eb4";
 #endif /* USE_XBRIDGE2 */
-  SimbleeBLE.advertisementInterval = MILLISECONDS(300);
+  SimbleeBLE.advertisementInterval = MILLISECONDS(500);
   SimbleeBLE.txPowerLevel = 4;
   SimbleeBLE.begin();
 #endif /* RFD */

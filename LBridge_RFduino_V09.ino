@@ -77,11 +77,15 @@
 #include <RFduinoBLE.h>
 #else
 #include <SimbleeBLE.h>
+#include <ota_bootloader.h>
 #endif
 
 #include <SPI.h>
 #include <Stream.h>
 #include <Memory.h>
+
+// by @clvsjr9 to Arduino 1.6.5 compile
+//#include <data_types.h>
 
 /* ************************** NFC defines ************************************** */
 
@@ -1912,7 +1916,7 @@ void setupBluetoothConnection()
   if (protocolType == 1) SimbleeBLE.deviceName = LB_NAME;
 #ifdef USE_XBRIDGE2
   Serial.print(" - setting xbridge/wixel device");
-  SimblleBLE.advertisementData = LB_ADVERT;
+  SimbleeBLE.advertisementData = LB_ADVERT;
   SimbleeBLE.customUUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
 #else /* USE_XBRIDGE2 */
   Serial.print(" - setting LimiTTer device");
@@ -2284,8 +2288,12 @@ int doCommand(void)
     #ifdef DEBUG
       Serial.println("V-command received.");
       Serial.println(v);
+    #endif   
+    #ifdef RFD
+      RFduinoBLE.send(v.cstr(), v.length());
+    #else
+      SimbleeBLE.send(v.cstr(), v.length());
     #endif
-    RFduinoBLE.send(v.cstr(), v.length());   
     displayData();
   }
   if ( toupper(command_buff.commandBuffer[0]) == 'M' ) {
@@ -2296,7 +2304,11 @@ int doCommand(void)
     #ifdef DEBUG
       Serial.println("M-command received.");
     #endif    
-    while(!RFduinoBLE.radioActive){} 
+    #ifdef RFD
+      while ( RFduinoBLE.radioActive );
+    #else
+      while ( SimbleeBLE.radioActive );
+    #endif
     delay(6);
     eraseData();
     writeData();

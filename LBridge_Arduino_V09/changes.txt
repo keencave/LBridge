@@ -1,0 +1,9 @@
+170716_1950: last released version
+170911_2202:
+	- AT+RENEW fail mechanism disabled to ensure usage with modified fake modules
+	- display serial status chars while sleeping
+	- detect faulty sensorsa during normal lifetime of 14 days
+	- removed fault in status display of spike removal
+	- added AT command before AT+ commands to break BLE connection if active
+	- hard system reset if AT+NOTI1 command cannot be processed
+	- slightly modified debug oputput

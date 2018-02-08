@@ -41,8 +41,8 @@
 
 #define RFD                     // enable for RFduino platform?
 //#define N_RFD                   // enable for Simblee platform
-#define N_USE_DEAD_SENSOR       // enable to work with live sensors
-//#define USE_DEAD_SENSOR         // enable to test with a dead sensor
+//#define N_USE_DEAD_SENSOR       // enable to work with live sensors
+#define USE_DEAD_SENSOR         // enable to test with a dead sensor
 #define USE_SPIKE_FILTER        // enable to use a spike filter on raw data
 // #define N_USE_SPIKE_FILTER     // enable to not use a spike filter on raw data
 #define USE_XBRIDGE2            // enable to use two way xbridge2 protocol with backfilling

@@ -432,6 +432,8 @@ void setup() {
 void SetProtocol_Command() {
   unsigned long ct;
 
+//  print_state(F("do SetProtocol_Command() ..."));
+
   digitalWrite(SSPin, LOW);
   SPI.transfer(0x00);  // SPI control byte to send command to CR95HF
   SPI.transfer(0x02);  // Set protocol command
@@ -475,6 +477,7 @@ void SetProtocol_Command() {
     NFCReady = 0; // NFC not ready
     nfc_prot_set_cmd_errors++;
   }
+//  print_state(F("done SetProtocol_Command() ..."));
 }
 
 void Inventory_Command() {

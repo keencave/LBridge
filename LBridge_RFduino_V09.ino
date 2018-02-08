@@ -33,6 +33,8 @@
  * V0.9.01
  *  - modifications due to @UPetersen s code review
  *  - bit mask for raw BG data 13 bits = 0x1FFF
+ * V09.02
+ *  - minor Simblee code changes (@clvsjr9)
  */
 
 /* ********************* program configuration options **********************/
@@ -64,7 +66,7 @@
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".01"  // indicates minor version
+#define LB_MINOR_VERSION ".02"  // indicates minor version
 #define LB_DATETIME "180206_1837" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 

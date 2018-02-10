@@ -35,6 +35,8 @@
  *  - bit mask for raw BG data 13 bits = 0x1FFF
  * V09.02
  *  - minor Simblee code changes (@clvsjr9)
+ * V09.03
+ *  - added #define SHORTSTARTCYCLE to activate 10 short start cycles for staring new sensor faster
  */
 
 /* ********************* program configuration options **********************/
@@ -49,6 +51,9 @@
 //#define N_USE_XBRIDGE2            // enable to use plain LimiTTer text transmission without backchannel
 #define USE_SHADOWFRAM          // work with a shadow FRAM copy of the Libre sensor FRAM
 //#define N_SHADOWFRAM            // read a full Libre sensor FRAM content each cycle
+
+//#define SHORTSTARTCYCLE         // first 10 cycles with 1 min period
+#define N_SHORTSTARTCYCLE         // normal system start
 
 /* 
  * debug and other less important options
@@ -66,8 +71,8 @@
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".02"  // indicates minor version
-#define LB_DATETIME "180206_1837" // date_time
+#define LB_MINOR_VERSION ".03"  // indicates minor version
+#define LB_DATETIME "180210_1547" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
@@ -375,11 +380,13 @@ void setup()
 
   setupInitData();
   protocolType = p->protocolType;
-//  runPeriod = p->runPeriod;
-
+#ifdef SHORTSTARTCYCLE
   // @FPV-UAV: do the first 10 rounds with 1 min cycle time
   runPeriod = 1;          // loop time is 1 min, only for system start
   print_statef("system start with %d min cycyle time", runPeriod);
+#else
+  runPeriod = p->runPeriod;
+#endif
 
   loop_cnt = 0;
 
@@ -416,11 +423,13 @@ void loop()
 
   loop_cnt++;
 
+#ifdef SHORTSTARTCYCLE
   // @FPV-UAV: system start with faster cycles, switch back after 10 rounds
   if ( loop_cnt > 10 ) {
     runPeriod = p->runPeriod;
     print_statef("switch back to normal cycle time %d min", runPeriod);
   }
+#endif
 
   // display system config for remote debugging
   print_statef("BLE Name: %s, Version: , HW platform: ", LB_NAME, LB_VERSION);

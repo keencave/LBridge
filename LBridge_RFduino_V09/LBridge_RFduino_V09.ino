@@ -37,6 +37,9 @@
  *  - minor Simblee code changes (@clvsjr9)
  * V09.03
  *  - added #define SHORTSTARTCYCLE to activate 10 short start cycles for staring new sensor faster
+ *  V0.9.04
+ *  - minimum voltage set to 2300 mV to ensure proper BLE operation (@bertrooode)
+ *  - debug oputput with no sensor available cleanded
  */
 
 /* ********************* program configuration options **********************/
@@ -71,12 +74,12 @@
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".03"  // indicates minor version
-#define LB_DATETIME "180210_1547" // date_time
+#define LB_MINOR_VERSION ".04"  // indicates minor version
+#define LB_DATETIME "180211_1953" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
-#define MIN_VOLTAGE 2100
+#define MIN_VOLTAGE 2300        // minimum voltage where BLE will work properly (@bertrooode)
 
 /* ****************************** includes ********************************** */
 
@@ -1279,9 +1282,9 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
 void readHeader(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
     int maxTrials = 10; // (Re)read a block max four times
-
+#ifdef DEBUG
     print_state("read header");
-
+#endif
     // read first three blocks (0 , 1, 2)
     for (byte block = 0; block < 3; block++) {
         (*sensor).resultCodes[block] =  readSingleBlock((byte) block, maxTrials, RXBuffer, (*sensor).fram, SS_PIN);
@@ -1304,9 +1307,9 @@ void readHeader(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 void readBody(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
     int maxTrials = 10; // (Re)read a block max four times
-
+#ifdef DEBUG
     print_state("read body");
-
+#endif
     // read block 0x27 (i.e. 39) with minute counter and block 3 with indices on trend and history data
     (*sensor).resultCodes[39] =  readSingleBlock((byte) 39, maxTrials, RXBuffer, &(sensor)->fram[0], SS_PIN);
     #ifdef DEBUG
@@ -1443,9 +1446,9 @@ void readBody(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 void readFooter(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
     int maxTrials = 10; // (Re)read a block max four times
-
+#ifdef DEBUG
     print_state("read footer");
-
+#endif
     // read three blocks of footer (40, 41, 42)
     for (byte block = 40; block < 43; block++) {
         (*sensor).resultCodes[block] =  readSingleBlock((byte) block, maxTrials, RXBuffer, (*sensor).fram, SS_PIN);
@@ -1469,7 +1472,9 @@ void reReadBlocksWhereResultCodeStillHasEnError(byte *RXBuffer,  Sensor *sensor,
     for (byte block = 0; block < 40; block++) {
         if ((*sensor).resultCodes[block] != 0x80) {
             (*sensor).resultCodes[block] =  readSingleBlock(block, maxTrials, RXBuffer, (*sensor).fram, SS_PIN);
+#ifdef DEBUG
            Serial.printf("Reread block #0x%x with result code 0x%x", block, (*sensor).resultCodes[block]);
+#endif
         }
     }
 }

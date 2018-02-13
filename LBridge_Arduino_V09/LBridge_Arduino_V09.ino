@@ -48,7 +48,7 @@
 #define N_RELEASE_VERSION
 
 #define LB_DATETIME "180207_2208"
-#define LB_VERSION "V09"        // version number
+#define LB_VERSION "V0.9"        // version number
 #define LB_MINOR_VERSION ".01"  // indicates minor version
 
 #ifdef RELEASE_VERSION
@@ -482,6 +482,8 @@ void SetProtocol_Command() {
 
 void Inventory_Command() {
   unsigned long ct;
+  int cnt = 0;
+
   digitalWrite(SSPin, LOW);
   SPI.transfer(0x00);  // SPI control byte to send command to CR95HF
   SPI.transfer(0x04);  // Send Receive CR95HF command
@@ -506,29 +508,37 @@ void Inventory_Command() {
   digitalWrite(SSPin, HIGH);
   delay(1);
 
-  digitalWrite(SSPin, LOW);
-  SPI.transfer(0x02);   // SPI control byte for read
-  RXBuffer[0] = SPI.transfer(0);  // response code
-  RXBuffer[1] = SPI.transfer(0);  // length of data
-  for (byte i = 0; i < RXBuffer[1]; i++)
-    RXBuffer[i + 2] = SPI.transfer(0); // data
-  digitalWrite(SSPin, HIGH);
-  delay(1);
+//  print_state(F("poll Inventory_Command successfull"));
 
-  if (RXBuffer[0] == 128)  // is response code good?
-  {
-#ifdef DB_PROCESSING
-    print_state(F("Sensor in range ... OK"));
-#endif
-    NFCReady = 2;
-    sensor_oor = 0;
-  }
-  else
-  {
-    print_state(F("Sensor out of range"));
-    NFCReady = 1;
-    nfc_inv_cmd_errors++;
-    sensor_oor = 1;
+  while ( cnt++ < 10 ) {
+    digitalWrite(SSPin, LOW);
+    SPI.transfer(0x02);   // SPI control byte for read
+    RXBuffer[0] = SPI.transfer(0);  // response code
+    RXBuffer[1] = SPI.transfer(0);  // length of data
+    for (byte i = 0; i < RXBuffer[1]; i++)
+      RXBuffer[i + 2] = SPI.transfer(0); // data
+    digitalWrite(SSPin, HIGH);
+    delay(1);
+
+    if (RXBuffer[0] == 128)  // is response code good?
+    {
+  #ifdef DB_PROCESSING
+      print_state(F("Sensor in range ... OK"));
+  #endif
+      NFCReady = 2;
+      sensor_oor = 0;
+      break;
+    }
+    else
+    {
+      print_state(F("Sensor out of range"));
+      NFCReady = 1;
+      nfc_inv_cmd_errors++;
+      sensor_oor = 1;
+    }
+
+    delay(100);
+
   }
 }
 

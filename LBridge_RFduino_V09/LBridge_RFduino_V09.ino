@@ -40,6 +40,8 @@
  *  V0.9.04
  *  - minimum voltage set to 2300 mV to ensure proper BLE operation (@bertrooode)
  *  - debug oputput with no sensor available cleanded
+ *  V0.9.05
+ *  - possible overflow error in sleep time fixed (@bertrooode)
  */
 
 /* ********************* program configuration options **********************/
@@ -74,8 +76,8 @@
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".04"  // indicates minor version
-#define LB_DATETIME "180211_1953" // date_time
+#define LB_MINOR_VERSION ".05"  // indicates minor version
+#define LB_DATETIME "180213_1332" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
@@ -178,8 +180,8 @@ boolean firstRun = 1;               // flag for spike filter operation
 byte protocolType = 1;              // 1 - LimiTTer
 byte runPeriod = 1;                 // czas w minutach - 0 = tylko na żądanie
 
-unsigned int time_loop_started = 0;
-unsigned int time_elapsed = 0;
+unsigned long time_loop_started = 0;
+unsigned long time_elapsed = 0;
 
 bool BatteryOK = false;
 
@@ -457,6 +459,12 @@ void loop()
   }
 
   time_elapsed = mymillis() - time_loop_started;
+  // sanity check
+  if ( time_elapsed > (60000*10) ) {
+    // in case of terror set to 5 mins fix
+    print_statef(" *** error in sleep time calculationm (%d ms) set to 5 min fix", time_elapsed);
+    time_elapsed = 5*60000L;
+  }
   print_statef("loop %d - end - NFCReady = %d, sleep for %d s", loop_cnt, NFCReady, (60 * runPeriod)-(time_elapsed/1000));
 
   Serial.end();         // reduce power consumption

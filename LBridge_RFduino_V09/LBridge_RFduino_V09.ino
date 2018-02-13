@@ -42,20 +42,23 @@
  *  - debug oputput with no sensor available cleanded
  *  V0.9.05
  *  - possible overflow error in sleep time fixed (@bertrooode)
+ *  V0.9.06
+ *  - queue length adjusted to 8h
+ *  - added debug output for decodeSN
  */
 
 /* ********************* program configuration options **********************/
 
 #define RFD                     // enable for RFduino platform?
 //#define N_RFD                   // enable for Simblee platform
-//#define N_USE_DEAD_SENSOR       // enable to work with live sensors
-#define USE_DEAD_SENSOR         // enable to test with a dead sensor
+#define N_USE_DEAD_SENSOR       // enable to work with live sensors
+//#define USE_DEAD_SENSOR         // enable to test with a dead sensor
 #define USE_SPIKE_FILTER        // enable to use a spike filter on raw data
 // #define N_USE_SPIKE_FILTER     // enable to not use a spike filter on raw data
 #define USE_XBRIDGE2            // enable to use two way xbridge2 protocol with backfilling
 //#define N_USE_XBRIDGE2            // enable to use plain LimiTTer text transmission without backchannel
 #define USE_SHADOWFRAM          // work with a shadow FRAM copy of the Libre sensor FRAM
-//#define N_SHADOWFRAM            // read a full Libre sensor FRAM content each cycle
+//#define NSHADOWFRAM            // read a full Libre sensor FRAM content each cycle
 
 //#define SHORTSTARTCYCLE         // first 10 cycles with 1 min period
 #define N_SHORTSTARTCYCLE         // normal system start
@@ -70,13 +73,13 @@
 /*
  * BLE and central seetings
  */
-#define DXQUEUESIZE (12*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
+#define DXQUEUESIZE (8*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
 
 #define LB_NAME   "xbridge1"    // dont change "xbridge", space for 1 char left to indicate different versions
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".05"  // indicates minor version
+#define LB_MINOR_VERSION ".06"  // indicates minor version
 #define LB_DATETIME "180213_1332" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
@@ -298,6 +301,7 @@ byte dataBuffer[400];         // receive buffer for non shadow FRAM processing
 
 /* ************************* shadow FRAM ************************************* */
 
+#ifdef USE_SHADOWFRAM
 /// State of nfc reading
 /// @Contains current and last values needed to track what blocks of date have to be read from the FreeStyle Libre via nfc
 /// Nomenclature:
@@ -318,6 +322,7 @@ typedef struct  __attribute__((packed)) {
 } Sensor;
 
 Sensor sensor;
+#endif
 
 /* **************************** processor internals *************************************** */
 
@@ -360,7 +365,7 @@ void setup()
   Serial.print(" =====================================================================================================");
 
   print_statef("LBridge starting");
-  Serial.printf("\r\n\tBLE Name: %s, Version: %s%s from %s", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
+  Serial.printf("\r\n\tBLE name: %s, %s%s from %s", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
   Serial.printf("\r\n\tRAM used: %d, , Flash used: %d", ramUsed(), flashUsed());
   Serial.printf("\r\n\tQueue size: %d (%d h)", DXQUEUESIZE, DXQUEUESIZE/12);
   Serial.printf("\r\n\tCompiled Options:");
@@ -401,7 +406,9 @@ void setup()
   digitalWrite(PIN_SPI_SS, HIGH);
   delay(1);
 
+#ifdef USE_SHADOWFRAM
   initSensor(&sensor);      // initialize the sensor data structure for FRAM shadowing
+#endif
 
   setupBluetoothConnection();
 
@@ -437,7 +444,7 @@ void loop()
 #endif
 
   // display system config for remote debugging
-  print_statef("BLE Name: %s, Version: , HW platform: ", LB_NAME, LB_VERSION);
+  print_statef("BLE: %s, %s%s from %s, HW: ", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME, LB_VERSION);
 #ifdef RFD
   Serial.print("RFduino");
 #else
@@ -592,6 +599,7 @@ void show_trend_history(void)
 
 /* ****************************** init section ********************************* */
 
+#ifdef USE_SHADOWFRAM
 /* 
  * shadow FRAM processing - init routine for selective nfc reading
  */
@@ -613,6 +621,7 @@ void initSensor(Sensor *sensor){
         (*sensor).resultCodes[i] = 0;
     }
 }
+#endif
 
 /*
  * initialize the send queue for backfilling
@@ -1029,6 +1038,8 @@ bool readSensorData()
 
   }
 
+#ifdef USE_SHADOWFRAM
+
   if ( use_shadowfram ) {
     #ifdef DEBUG
     print_state("read Libre sensor using shadow FRAM mechanism");
@@ -1096,6 +1107,9 @@ bool readSensorData()
     if (crcResult) NFCReady = 2;
     else NFCReady = 1;
   }
+
+#endif /* USE_SHADOWFRAM */
+
   return crcResult;
 }
 
@@ -1287,6 +1301,7 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
     return RXBuffer[0];  // result code of command response
 }
 
+#ifdef USE_SHADOWFRAM
 void readHeader(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
     int maxTrials = 10; // (Re)read a block max four times
@@ -1486,6 +1501,7 @@ void reReadBlocksWhereResultCodeStillHasEnError(byte *RXBuffer,  Sensor *sensor,
         }
     }
 }
+#endif /* USE_SHADOWFRAM */
 
 /* ***************************** end of shawdow FRAM code ************************************** */
 
@@ -1638,6 +1654,9 @@ String decodeSN(byte *data)
     else if (l == 7) binS = "0" + binS;
     binary += binS;
   }
+
+  print_state("decodeSN #1: "); Serial.print(binary);
+
   String v = "0";
   char pozS[5];
   for (int i = 0; i < 10; i++)
@@ -1646,6 +1665,9 @@ String decodeSN(byte *data)
     int value = (pozS[0] - '0') * 16 + (pozS[1] - '0') * 8 + (pozS[2] - '0') * 4 + (pozS[3] - '0') * 2 + (pozS[4] - '0') * 1;
     v += lookupTable[value];
   }
+
+  print_state("decodeSN #2: "); Serial.print(v);
+
   return v;
 }
 

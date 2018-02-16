@@ -45,42 +45,39 @@
  *  V0.9.06
  *  - queue length adjusted to 8h
  *  - added debug output for decodeSN
+ *  V0.9.07
+ *  - serial.begin fixed (delay code by @bertrooode)
+ *  - error fixed in decodeSN (@bertrooode)
+ *  - reworked program config section (#define section)
  */
 
 /* ********************* program configuration options **********************/
 
-#define RFD                     // enable for RFduino platform?
-//#define N_RFD                   // enable for Simblee platform
-#define N_USE_DEAD_SENSOR       // enable to work with live sensors
-//#define USE_DEAD_SENSOR         // enable to test with a dead sensor
-#define USE_SPIKE_FILTER        // enable to use a spike filter on raw data
-// #define N_USE_SPIKE_FILTER     // enable to not use a spike filter on raw data
-#define USE_XBRIDGE2            // enable to use two way xbridge2 protocol with backfilling
-//#define N_USE_XBRIDGE2            // enable to use plain LimiTTer text transmission without backchannel
-#define USE_SHADOWFRAM          // work with a shadow FRAM copy of the Libre sensor FRAM
-//#define NSHADOWFRAM            // read a full Libre sensor FRAM content each cycle
-
-//#define SHORTSTARTCYCLE         // first 10 cycles with 1 min period
-#define N_SHORTSTARTCYCLE         // normal system start
+#define RFD                     // uncomment for RFduino platform, otherwise Simblee platform will be used
+//#define USE_DEAD_SENSOR         // uncomment to work with live sensors
+#define USE_SPIKE_FILTER        // uncomment to use a spike filter on raw data
+#define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTER
+                                // ASCII protocol (ine way)
+#define USE_SHADOWFRAM          // uncomment to work with a shadow FRAM copy of the Libre sensor FRAM
+//#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
 
 /* 
  * debug and other less important options
  * add an "N_" prefix to disbale the option
  */
-#define N_DEBUG
-#define N_SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor
+//#define DEBUG                 // uncomment to have verbose debug output
+//#define SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor
+//#define ULP_WITH_SERIAL         // uncomment to have serial output during Ultrra Low Power sleep
 
-/*
- * BLE and central seetings
- */
+/* ******************** BLE and central seetings ***************************** */
 #define DXQUEUESIZE (8*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
 
 #define LB_NAME   "xbridge1"    // dont change "xbridge", space for 1 char left to indicate different versions
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".06"  // indicates minor version
-#define LB_DATETIME "180213_1332" // date_time
+#define LB_MINOR_VERSION ".07"  // indicates minor version
+#define LB_DATETIME "180216_1051" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
@@ -358,8 +355,15 @@ void setup()
   p = (dataConfig*)ADDRESS_OF_PAGE(MY_FLASH_PAGE);
   // init and open serial line
   Serial.begin(9600);
-  // time sto settle, avoid serial ghost characters
-  delay(2000); 
+  // time to settle, avoid serial ghost characters
+//  delay(2000); 
+  // time to settle, method in troduced by @bertrooode
+  // wait for serial interface up and running or if 5 secs are elapsed
+  unsigned long ct = mymillis();
+  while ( !Serial && ((mymillis()-ct) < 5000) ) {
+    delay(100);
+  }
+  print_statef("serial interface ready after %d ms", ct-mymillis());
 
   Serial.print("\r\n=== loop #"); Serial.print(loop_cnt);
   Serial.print(" =====================================================================================================");
@@ -480,7 +484,15 @@ void loop()
 #else
   Simblee_ULPDelay((60000 * runPeriod) - time_elapsed) ;
 #endif
+
   Serial.begin(9600);
+  // time to settle, method in troduced by @bertrooode
+  // wait for serial interface up and running or if 5 secs are elapsed
+  unsigned long ct = mymillis();
+  while ( !Serial && ((mymillis()-ct) < 5000) ) {
+    delay(100);
+  }
+  print_statef("serial interface ready after %d ms", ct-mymillis());
 }
 
 /*
@@ -1599,13 +1611,11 @@ void displaySensorData()
     print_state("Sensor data error");
   else
   {
-    print_state("BG raw reading: "); Serial.print(sensorData.trend[0]);
-    print_state("BG temperature: "); Serial.print(sensorData.trendTemperature[0]);
-    print_state("next trend position: "); Serial.print(sensorData.nextTrend);
-    Serial.printf(", next history position: %d", sensorData.nextHistory);
-    print_state("minutes since sensor start: "); Serial.print(sensorData.minutesSinceStart);
-    Serial.printf(", minutes to most recent history: -%d min", sensorData.minutesHistoryOffset);
-    print_state("current raw BG reading: "); Serial.print(scale_bg(sensorData.trend[0]));
+    print_statef("BG raw reading: %d, temperature: %f", sensorData.trend[0], sensorData.trendTemperature[0]);
+    print_statef("next trend position: %d, next history position: %d", sensorData.nextTrend, sensorData.nextHistory);
+//    print_state("minutes since sensor start: "); Serial.print(sensorData.minutesSinceStart);
+//    Serial.printf(", minutes to most recent history: -%d min", sensorData.minutesHistoryOffset);
+//    print_state("current raw BG reading: "); Serial.print(sensorData.trend[0]);
   }
 }
 
@@ -1650,6 +1660,10 @@ String decodeSN(byte *data)
     binS = String(uuidShort[i], BIN);
     int l = binS.length();
     if (l == 1) binS = "0000000" + binS;
+
+    // @bertroode: to fix an error in the reference implementation from @UPetersen
+    else if (l == 5) binS = "000" + binS;
+
     else if (l == 6) binS = "00" + binS;
     else if (l == 7) binS = "0" + binS;
     binary += binS;
@@ -1692,7 +1706,7 @@ int put_reading2queue(unsigned long current_time_ms, int glucose, bool debug)
 #endif
 
   if ( debug )
-    print_statef("got glucose(%d) at %d min, stored at %d, inc. write to ", glucose, current_time_ms/60000, Pkts.write); 
+    print_statef("got glucose(%d) at %d min, stored at %d, inc. write to ", scale_bg(glucose), current_time_ms/60000, Pkts.write); 
   // so increment write position for next round...
   if ( ++Pkts.write >= DXQUEUESIZE )
     Pkts.write = 0;
@@ -1784,7 +1798,7 @@ void decodeSensorBody()
 
   print_state("index/pointer/minutes:");
   Serial.printf("\r\n\tnext trend block #%d, next history block #%d", sensorData.nextTrend, sensorData.nextHistory);
-  Serial.printf("\r\n\tminutes elapsed: %d, minutes distance to most recent history value: %d", sensorData.minutesSinceStart, sensorData.minutesHistoryOffset);
+  Serial.printf("\r\n\tminutes elapsed: %d, minutes distance to most recent history value: -%d", sensorData.minutesSinceStart, sensorData.minutesHistoryOffset);
 
   // copy 16 trend data
   int index = 0;
@@ -1825,7 +1839,7 @@ void decodeSensorBody()
     for (int k = index; k < index + 6; k++) pomiar[k - index] = sensorDataBody[k];
     sensorData.history[i] = ((pomiar[1] << 8) & 0x0F00) + pomiar[0];
   }
-  Serial.print("done");
+  Serial.print(" - done");
 }
 
 void decodeSensorFooter()
@@ -2141,13 +2155,17 @@ void RFduinoBLE_onReceive(char *data, int len)
 void RFduinoBLE_onDisconnect()
 {
   BTconnected = false;
+#ifdef ULP_WITH_SERIAL
   print_state("+++++++++++++ BLE lost");
+#endif
 }
 
 void RFduinoBLE_onConnect()
 {
   BTconnected = true;
+#ifdef ULP_WITH_SERIAL
   print_state("+++++++++++++ BLE conn");
+#endif
 }
 
 void RFduinoBLE_onRSSI(int rssi)
@@ -2172,13 +2190,17 @@ void SimbleeBLE_onReceive(char *data, int len)
 void SimbleeBLE_onDisconnect()
 {
   BTconnected = false;
+#ifdef ULP_WITH_SERIAL
   print_state("+++++++++++++ BLE lost");
+#endif
 }
 
 void SimbleeBLE_onConnect()
 {
   BTconnected = true;
+#ifdef ULP_WITH_SERIAL
   print_state("+++++++++++++ BLE conn");
+#endif
 }
 
 void SimbleeBLE_onRSSI(int rssi)

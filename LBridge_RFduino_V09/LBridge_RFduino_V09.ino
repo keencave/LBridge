@@ -46,6 +46,7 @@
  *  - queue length adjusted to 8h
  *  - added debug output for decodeSN
  *  V0.9.07
+<<<<<<< HEAD
  *  - serial.begin wait now for port online (delay code by @bertrooode)
  *  - error fixed in decodeSN (@bertrooode)
  *  - reworked program config section (#define section)
@@ -55,6 +56,11 @@
  *  - additional reset of CR95HF after ULP wakeup and Serial.start (@bertrooode)
  *  - own printf() code to avoid fragmented Serial.print() calls / reduce system load? to be verified
  *  - set different minimum voltage level for Simblee (@FPV-UAV)
+=======
+ *  - serial.begin fixed (delay code by @bertrooode)
+ *  - error fixed in decodeSN (@bertrooode)
+ *  - reworked program config section (#define section)
+>>>>>>> 889c98de6bfe5483b6c10b253498555ce3125e25
  */
 
 /* ********************* program configuration options **********************/
@@ -82,8 +88,13 @@
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
+<<<<<<< HEAD
 #define LB_MINOR_VERSION ".08"  // indicates minor version
 #define LB_DATETIME "180219_2147" // date_time
+=======
+#define LB_MINOR_VERSION ".07"  // indicates minor version
+#define LB_DATETIME "180216_1051" // date_time
+>>>>>>> 889c98de6bfe5483b6c10b253498555ce3125e25
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #ifdef RFD
@@ -367,6 +378,7 @@ void setup()
   // init and open serial line
   Serial.begin(9600);
   // time to settle, avoid serial ghost characters
+<<<<<<< HEAD
   delay(2000); 
   // time to settle, method introduced by @bertrooode
   // wait for serial interface up and running or if 5 secs are elapsed
@@ -375,6 +387,16 @@ void setup()
     delay(100);
   } while ( !Serial && ((mymillis()-ct) < 5000) );
 //  print_statef("serial interface ready after %d ms", mymillis()-ct);
+=======
+//  delay(2000); 
+  // time to settle, method in troduced by @bertrooode
+  // wait for serial interface up and running or if 5 secs are elapsed
+  unsigned long ct = mymillis();
+  while ( !Serial && ((mymillis()-ct) < 5000) ) {
+    delay(100);
+  }
+  print_statef("serial interface ready after %d ms", ct-mymillis());
+>>>>>>> 889c98de6bfe5483b6c10b253498555ce3125e25
 
   myprintf("\r\n=== starting =====================================================================================================");
 
@@ -511,6 +533,7 @@ void loop()
   // time to settle, method in troduced by @bertrooode
   // wait for serial interface up and running or if 5 secs are elapsed
   unsigned long ct = mymillis();
+<<<<<<< HEAD
   do {
     delay(100);
   } while ( !Serial && ((mymillis()-ct) < 5000) );
@@ -522,6 +545,12 @@ void loop()
   digitalWrite(PIN_SPI_SS, HIGH);
   delay(1);
 
+=======
+  while ( !Serial && ((mymillis()-ct) < 5000) ) {
+    delay(100);
+  }
+  print_statef("serial interface ready after %d ms", ct-mymillis());
+>>>>>>> 889c98de6bfe5483b6c10b253498555ce3125e25
 }
 
 /*

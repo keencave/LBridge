@@ -72,13 +72,13 @@
 
 /* ********************* program configuration options **********************/
 
-//#define RFD                     // uncomment for RFduino platform, otherwise Simblee platform will be used
+#define RFD                     // uncomment for RFduino platform, otherwise Simblee platform will be used
 #define USE_DEAD_SENSOR         // uncomment to work with live sensors
 #define USE_SPIKE_FILTER        // uncomment to use a spike filter on raw data
 #define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTER
                                 // ASCII protocol (ine way)
 #define USE_SHADOWFRAM          // uncomment to work with a shadow FRAM copy of the Libre sensor FRAM
-#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
+//#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
 
 /* 
  * debug and other less important options
@@ -87,36 +87,35 @@
 //#define DEBUG                 // uncomment to have verbose debug output
 //#define FRAM_DEBUG                 // uncomment to have verbose debug output for FRAM mechanism
 //#define SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor
-#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages
+//#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages
 
 /* ******************** BLE and central seetings ***************************** */
 #define DXQUEUESIZE (8*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
 
-#define LB_NAME   "xbridge2"    // dont change "xbridge", space for 1 char left to indicate different versions
+#define LB_NAME   "xbridge1"    // dont change "xbridge", space for 1 char left to indicate different versions
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".10"  // indicates minor version
-#define LB_DATETIME "180225_1252" // date_time
+#define LB_MINOR_VERSION ".11"  // indicates minor version
+#define LB_DATETIME "180226_2046" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #ifdef RFD
 #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
 #define MIN_VOLTAGE 2300        // minimum voltage where BLE will work properly (@bertrooode)
-#else
+#else RFD
 #define MAX_VOLTAGE 3000        // adjust voltage measurement to have a wider rrange
 #define MIN_VOLTAGE 2200        // minimum voltage where BLE will work properly (@FPV-UAV)
-//#define MIN_VOLTAGE 2550        // minimum voltage where BLE will work properly (@FPV-UAV)
-#endif /* RFD */
+#endif RFD
 
 /* ****************************** includes ********************************** */
 
 #ifdef RFD
 #include <RFduinoBLE.h>
-#else
+#else RFD
 #include <SimbleeBLE.h>
 #include <ota_bootloader.h>
-#endif
+#endif RFD
 
 #include <SPI.h>
 #include <Stream.h>
@@ -457,9 +456,10 @@ void setup()
   // init xbridge queue
   Pkts.read = 0;
   Pkts.write = 0;
+#ifdef USE_XBRIDGE2
   // set timestamps in queue for inital backfilling
   initialFillupBackfillTimestamps();
-
+#endif
   print_statef("NFCReady = %d, BatOK = %d", NFCReady, BatteryOK);
 //  print_state("setup - end - ");
 }
@@ -498,7 +498,9 @@ void loop()
   if ( BatteryOK ) {
     readAllData();
     if (NFCReady == 2) {
+#ifdef USE_XBRIDGE2
       fillupMissingReadings(0);
+#endif
       dataTransferBLE();
     }
     else {
@@ -549,6 +551,7 @@ void loop()
 
 }
 
+#ifdef USE_XBRIDGE2
 /*
  * search BG queue for missing entries (0), if within the last 8 h fill the values from the Libre sensor FRAM
  */
@@ -562,8 +565,9 @@ void fillupMissingReadings(boolean debug)
   // ??
   minutesSinceProgramStart = (mymillis() / (60000));
   mytime = minutesSinceProgramStart;
+#ifdef DEBUG
   print_statef("fillupMissingReadings() - current time: %d (%d/%d), sensorData.minutesHistoryOffset: %d", mytime, mytime/15, mytime%15, sensorData.minutesHistoryOffset);
-
+#endif DEBUG
   // check complete queue for missing BG readings (0 entries)
   for ( int i = 0 ; i < DXQUEUESIZE ; i++ ) {
     // get time of queue entry
@@ -611,6 +615,7 @@ void fillupMissingReadings(boolean debug)
   if ( nulls > 0 )
     print_statef("backfill %d readings ...", nulls);
 }
+#endif USE_XBRIDGE2
 
 /* ********************************** dump stuff ************************ */
 
@@ -699,6 +704,7 @@ void initSensor(Sensor *sensor){
 
 #define FILL8H (8*12)     // fillup 8 h - the length of the 8 hour Libre sensor FRAM history over all
 
+#ifdef USE_XBRIDGE2
 void initialFillupBackfillTimestamps(void)
 {
   unsigned long sim_time_ms;
@@ -716,6 +722,7 @@ void initialFillupBackfillTimestamps(void)
   // set to end of initial queue
   minutesSinceProgramStart = (mymillis() / (60000));
 }
+#endif USE_XBRIDGE2
 
 /* ************************* NFC/SPI handling **************************** */
 
@@ -1017,12 +1024,12 @@ SystemInformationDataType systemInformationDataFromGetSystemInformationResponse(
     if ((systemInformationData.responseFlags & 0x01) == 0)
     {
       systemInformationData.infoFlags = resultBuffer[3];
-      print_state("UID: ");
+//      print_state("UID: ");
       for (int i = 0; i < 8; i++)
       {
         systemInformationData.uid[i] = resultBuffer[11 - i];
-        Serial.print(systemInformationData.uid[i], HEX);
-        Serial.print(" ");
+//        Serial.print(systemInformationData.uid[i], HEX);
+//        Serial.print(" ");
       }
       systemInformationData.errorCode = resultBuffer[resultBuffer[1] + 2 - 1];
     }
@@ -1049,7 +1056,7 @@ void printSystemInformationData(SystemInformationDataType systemInformationData)
 //  Serial.printf(", Response flags: %x", systemInformationData.responseFlags);
 //  print_state("");
 //  Serial.print(" - Sensor SN:");
-  myprintf(", Sensor SN: %s", systemInformationData.sensorSN.cstr());
+  print_statef("Sensor SN: %s", systemInformationData.sensorSN.cstr());
 //  Serial.printf(", Error code: %x - done", systemInformationData.errorCode);
 }
 
@@ -1570,7 +1577,10 @@ void getSoCData()
   analogReference(VBG);
   analogSelection(VDD_1_3_PS);
 #ifdef RFD
+  uint16_t sensorValue1 = readVDD();
+  print_statef("readVDD() = %d", sensorValue1);
   int sensorValue = analogRead(1);
+  print_statef("analogRead(1) = %d", sensorValue);
   SoCData.voltage = sensorValue * (360 / 1023.0) * 10;
   SoCData.temperatureC = RFduino_temperature(CELSIUS);
   SoCData.temperatureF = RFduino_temperature(FAHRENHEIT);
@@ -1832,7 +1842,7 @@ void decodeSensorHeader()
 void decodeSensorBody()
 {
   int j;
-  print_state("decodeSensorBody() - ");
+//  print_state("decodeSensorBody() - ");
   byte pomiar[6];
 
   // calculate block indices for trend/history
@@ -1861,8 +1871,7 @@ void decodeSensorBody()
   sensorData.minutesSinceStart += (loop_cnt-1)*runPeriod;
 #endif
   minutesSinceProgramStart = sensorData.minutesSinceStart - startMinutesSinceStart;
-  print_state("runtime minutes since program start: "); 
-  Serial.printf("%d (%d - %d)", minutesSinceProgramStart, sensorData.minutesSinceStart, startMinutesSinceStart);
+  print_statef("runtime %d min (%d - %d)", minutesSinceProgramStart, sensorData.minutesSinceStart, startMinutesSinceStart);
   // calculate minute distance to most recent history entry
   sensorData.minutesHistoryOffset = (sensorData.minutesSinceStart - 3) % 15 + 3 ;
 /*
@@ -1909,7 +1918,7 @@ void decodeSensorBody()
     for (int k = index; k < index + 6; k++) pomiar[k - index] = sensorDataBody[k];
     sensorData.history[i] = ((pomiar[1] << 8) & 0x0F00) + pomiar[0];
   }
-  Serial.print(" - done");
+//  Serial.print(" - done");
 }
 
 void decodeSensorFooter()
@@ -2036,6 +2045,7 @@ void setupBluetoothConnection()
   RFduinoBLE.customUUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
 #else /* USE_XBRIDGE2 */
   Serial.print(" - LimiTTer device");
+  RFduinoBLE.deviceName = "LimiTTer";
   RFduinoBLE.advertisementData = "data";
   RFduinoBLE.customUUID = "c97433f0-be8f-4dc8-b6f0-5343e6100eb4";
 #endif /* USE_XBRIDGE2 */
@@ -2050,6 +2060,7 @@ void setupBluetoothConnection()
   SimbleeBLE.customUUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
 #else /* USE_XBRIDGE2 */
   Serial.print(" - setting LimiTTer device");
+  SimbleeBLE.deviceName = "LimiTTer";
   SimbleeBLE.advertisementData = "data";
   SimbleeBLE.customUUID = "c97433f0-be8f-4dc8-b6f0-5343e6100eb4";
 #endif /* USE_XBRIDGE2 */
@@ -2102,10 +2113,8 @@ void sendToXdripViaBLE(void)
   TxBuffer1 += " ";
   TxBuffer1 += String((int)(sensorData.minutesSinceStart / 10));
   int  LL = TxBuffer1.length();
-  Serial.print("sendToXdripViaBLE >>");
-  Serial.print(TxBuffer1);
-  Serial.print("<< ");
-  Serial.println(LL);
+  print_statef("sendToXdripViaBLE: %s", TxBuffer1.cstr());
+//  Serial.println(LL);
 #ifdef RFD
   RFduinoBLE.send(TxBuffer1.cstr(), TxBuffer1.length());
 #else
@@ -2310,6 +2319,12 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
              + sizeof(msg.delay) + sizeof(msg.function);
   msg.cmd_code = 0x00;
   msg.raw = pPkt->raw;
+#ifdef USE_DEAD_SENSOR
+  // xDrip+ filters out identical values too short after each other, simulate small jitter
+  // value range is 100000++
+  if ( runPeriod < 5 )
+    pPkt->raw += loop_cnt % 2;
+#endif USE_DEAD_SENSOR
   msg.filtered = pPkt->raw;
   msg.dex_battery = 214;  // simulate good dexcom transmitter battery
   msg.my_battery = SoCData.voltagePercent;

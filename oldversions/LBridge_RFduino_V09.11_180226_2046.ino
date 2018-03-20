@@ -62,26 +62,12 @@
  *  - bugfix for backfilling (@libxmike)
  *  - bugfix to enable live sensor change (@bertrooode, @chaosbiber)
  *  - minor bugfixes
- * V0.9.11
- *  - fixed LimiTTer mode (comment USE_XBRIDGE2 out)
- * V0.9.12
- *  - removed while (!Serial), replaced by a fixed delay
- *  - removed own printf code to avoid stack overflow
- *  - added while (RDduinoBLE.radioActive); after ...BLE.send 
- * V0.9.13
- *  - this version number was skipped
- * V0.9.14
- *  - replaced all String class depend code to char[] type to reduce heavy memory usage of String class
- *  - added stack_check() code / no action / display function call history after remaining memory is too low
- *  - removed radioActive check before/after BLE.send routines
- *  - reduced BLE packet length to 20 bytes fixed to avoid sending 2 packets / xDrip accepts shorter packets
- *    if the length is coded correctly at start of packet
  */
 
  /*
   * to do:
-  * - clear up SHADOWFRAM code, implemented with #defined parts and bool flag
-  * - adopt Simblee FLASH handling
+  * - SHADOWFRAM with #dfined and bool flag
+  * - Simblee FLASH handling
   */
 
 /* ********************* program configuration options **********************/
@@ -89,10 +75,10 @@
 #define RFD                     // uncomment for RFduino platform, otherwise Simblee platform will be used
 #define USE_DEAD_SENSOR         // uncomment to work with live sensors
 #define USE_SPIKE_FILTER        // uncomment to use a spike filter on raw data
-#define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTer
-                                // ASCII protocol (one way communication)
+#define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTER
+                                // ASCII protocol (ine way)
 #define USE_SHADOWFRAM          // uncomment to work with a shadow FRAM copy of the Libre sensor FRAM
-#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
+//#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
 
 /* 
  * debug and other less important options
@@ -100,22 +86,18 @@
  */
 //#define DEBUG                 // uncomment to have verbose debug output
 //#define FRAM_DEBUG                 // uncomment to have verbose debug output for FRAM mechanism
-//#define SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor, disable for active sensors!
-
+//#define SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor
 //#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages
-#define SERIALOFF               // switch off Serial interface during ULP
-
-#define UARTDELAY 2000          // delay after switching serial interface on/off
 
 /* ******************** BLE and central seetings ***************************** */
-#define DXQUEUESIZE (9*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
+#define DXQUEUESIZE (8*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
 
-#define LB_NAME   "xbridgeR"    // dont change "xbridge", space for 1 char left to indicate different versions
+#define LB_NAME   "xbridge1"    // dont change "xbridge", space for 1 char left to indicate different versions
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".14"  // indicates minor version
-#define LB_DATETIME "180320_2008" // date_time
+#define LB_MINOR_VERSION ".11"  // indicates minor version
+#define LB_DATETIME "180226_2046" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #ifdef RFD
@@ -125,8 +107,6 @@
 #define MAX_VOLTAGE 3000        // adjust voltage measurement to have a wider rrange
 #define MIN_VOLTAGE 2200        // minimum voltage where BLE will work properly (@FPV-UAV)
 #endif RFD
-
-//#define BLE_REAL_LEN            // use real length of BLE packets to send or limit to 20 chars?
 
 /* ****************************** includes ********************************** */
 
@@ -140,9 +120,7 @@
 #include <SPI.h>
 #include <Stream.h>
 #include <Memory.h>
-#include <itoa.h>
-
-//#include <itoa.h>             // support functions for sprintf(...)
+#include <itoa.h>             // support functions for sprintf(...)
 
 // by @clvsjr9 to Arduino 1.6.5 compile
 //#include <data_types.h>
@@ -213,6 +191,7 @@ unsigned long last_raw = 0;         // last sended RAW value
 int batteryPcnt = 0;                // battery capacity in %
 
 unsigned long loop_cnt = 0;         // count the 5 mins loops
+static boolean show_ble = 0;        // what is shown in serial monitor
 int ble_answer;                     // state counter, char from BLE reeived?
 
 #define BLEBUFLEN 80                // BLE input buffer
@@ -237,7 +216,8 @@ unsigned long time_loop_started = 0;
 bool BatteryOK = false;
 
 byte noOfBuffersToTransmit = 1;     // LimiTTer type string
-char TxBuffer[30];
+String TxBuffer[10];
+String TxBuffer1 = "";
 
 byte NFCReady = 0;            // 0 - not initialized, 1 - initialized, no data, 2 - initialized, data OK
 
@@ -246,7 +226,6 @@ byte NFCReady = 0;            // 0 - not initialized, 1 - initialized, no data, 
 // defines the xBridge protocol functional level.  Sent in each packet as the last byte.
 #define DEXBRIDGE_PROTO_LEVEL (0x01)
 
-static boolean show_ble = 0;
 static boolean got_ack = 0;               // indicates if we got an ack during the last do_services.
 static unsigned long pkt_time = 0;        // time of last valid received glucose value
 static unsigned long last_ble_send_time;  // beautifying BLE debug output
@@ -298,9 +277,6 @@ unsigned long dex_tx_id = 0xA5B1AE;     // TXID for xbridge2 protocol packets = 
 
 /* *************************** NFC related ******************************* */
 
-#define SNLEN 20            // length of decoded sensor number
-#define SSBYTE              // length of sensorStatusByte message
-
 typedef struct  __attribute__((packed))
 {
   uint8_t resultCode;
@@ -315,15 +291,15 @@ typedef struct  __attribute__((packed))
   uint8_t responseFlags;
   uint8_t infoFlags;
   uint8_t errorCode;
-  char *sensorSN;
+  String sensorSN;
 } SystemInformationDataType;
 
 typedef struct  __attribute__((packed))
 {
   bool sensorDataOK;
-  char *sensorSN;
+  String sensorSN;
   byte   sensorStatusByte;
-  char sensorStatusString[SSBYTE];
+  String sensorStatusString;
   byte  nextTrend;
   byte  nextHistory;
   uint16_t minutesSinceStart;
@@ -410,43 +386,42 @@ void setup()
   // init and open serial line
   Serial.begin(9600);
   // time to settle, avoid serial ghost characters
-  delay(UARTDELAY); 
+  delay(2000); 
+  // time to settle, method introduced by @bertrooode
+  // wait for serial interface up and running or if 5 secs are elapsed
+  unsigned long ct = mymillis();
+  do {
+    delay(100);
+  } while ( !Serial && ((mymillis()-ct) < 5000) );
+//  print_statef("serial interface ready after %d ms", mymillis()-ct);
 
-  Serial.printf("\r\n============================================================================");
+  myprintf("\r\n=== starting =====================================================================================================");
 
-#ifdef RFD
-  print_state("LBridge starting (RFduino)");
-#else
-  print_state("LBridge starting (Simblee)");
-#endif RFD
-  Serial.print("\r\n\tBLE name: "); Serial.print(LB_NAME); 
-  Serial.print(", "); Serial.print(LB_VERSION); Serial.print(LB_MINOR_VERSION);
-  Serial.print(" from "); Serial.print(LB_DATETIME);
-  Serial.printf("\r\n\tRAM used: %d, Flash used: %d", ramUsed(), flashUsed());
-  Serial.print("\r\n\tQueue size: "); Serial.print(DXQUEUESIZE);
-  Serial.print(" ("); Serial.print(DXQUEUESIZE/12); Serial.print(" h)");
-  Serial.print("\r\n\tOptions:");
+  print_statef("LBridge starting");
+  myprintf("\r\n\tBLE name: %s, %s%s from %s", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
+  myprintf("\r\n\tRAM used: %d, , Flash used: %d", ramUsed(), flashUsed());
+  myprintf("\r\n\tQueue size: %d (%d h)", DXQUEUESIZE, DXQUEUESIZE/12);
+  myprintf("\r\n\tOptions:");
 #ifdef SIM_MINUTES_UPCOUNT
-  Serial.print("-simSensorMin");
+  myprintf("-simSensorMin");
 #endif
 #ifdef USE_DEAD_SENSOR
-  Serial.print("-useDeadSensor");
+  myprintf("-useDeadSensor");
 #endif
 #ifdef USE_SPIKE_FILTER
-  Serial.printf("-spikeFilter%d", SPIKE_HEIGHT);
+  myprintf("-spikeFilter%d", SPIKE_HEIGHT);
 #endif
 #ifdef USE_XBRIDGE2
-  Serial.print("-xbridge2");
+  myprintf("-xbridge2");
 #endif
 #ifdef USE_SHADOWFRAM
-  Serial.print("-shadowFRAM");
+  myprintf("-shadowFRAM");
 #endif
 #ifdef SHORTSTARTCYCLE
-  Serial.print("-10cycles1min");
+  myprintf("-10cycles1min");
 #endif
-#ifdef SERIALOFF
-  Serial.print("-serialOff");
-#endif
+
+//  print_state("setup - start - ");
 
   getSoCData();
   printSoCData();
@@ -456,10 +431,13 @@ void setup()
 #ifdef SHORTSTARTCYCLE
   // @FPV-UAV: do the first 10 rounds with 1 min cycle time
   runPeriod = 1;          // loop time is 1 min, only for system start
-  print_state("system start with "); Serial.print(runPeriod); Serial.print(" min cycyle time");
+  print_statef("system start with %d min cycyle time", runPeriod);
 #else
   runPeriod = p->runPeriod;
 #endif
+
+  // test
+//  runPeriod = 1;
 
   loop_cnt = 0;
 
@@ -482,133 +460,18 @@ void setup()
   // set timestamps in queue for inital backfilling
   initialFillupBackfillTimestamps();
 #endif
-  print_state("NFCReady = "); Serial.print(NFCReady); Serial.print(", BatOK = "); Serial.print(BatteryOK);
-
-  check_stack("#setup#");
-  memAndStack("setup()");
+  print_statef("NFCReady = %d, BatOK = %d", NFCReady, BatteryOK);
+//  print_state("setup - end - ");
 }
-
-
-/* ****************************************************************************** */
-
-// reference: http://forum.arduino.cc/index.php?topic=226880.0
-// topic: Stack address > 2k for ATMEGA328p?
-// https://learn.adafruit.com/memories-of-an-arduino/measuring-free-memory
-
-#define MAXSTACK 0x20003FFF       // stack begin at RFduino
-#define STACKWARNLEVEL 300        // maximum stack size (1k on RFduino)
-#define FKTSTACK 20               // entries for calling history
-#define FNMLEN 20
-
-boolean sreached = 0;
-
-int minimumMemory = 8192;
-
-char fktstack[FKTSTACK][FNMLEN];
-unsigned int fktFree[FKTSTACK];
-unsigned char fwind = 0;
-unsigned char frind = 0;
-
-void memAndStack(char *func)
-{
-  print_state("");
-  Serial.printf("(%s) - free RAM = %d, minimum memory available: %d", func, freeMemory(), minimumMemory);
-  int v;
-  Serial.print(", Stack Size = ");
-  // stack memory of RFduino begins at 0x20003FFF
-  Serial.print((MAXSTACK-(int)&v));
-}
-
-/*
- * stack size check for ARM Cortec M0 processors (RFduino)
- * according to the Memory.h file from the RFduino library the RAM layout is like this
- * ram:
- * 20000000 - 20001FFF -> stack RAM storage
- * 20002000 - 20003FFF -> application RAM storage
- * where we use the application RAM storage
- */
-void check_stack(char *fkt)
-{
-  unsigned int fm = freeMemory();
-
-  if ( fm < minimumMemory )
-    minimumMemory = fm;
-
-  // check if enough memory is left for proper operation between heap top and stack bottom
-  if ( fm < STACKWARNLEVEL ) {
-    if ( !sreached ) {
-      sreached = 1;
-      Serial.printf("\r\n *** %s max stack size reached: %d left", fkt, fm);
-      // print fnction call history
-      while ( frind != fwind ) {
-        Serial.printf("\r\n->%s (%d)", fktstack[frind], fktFree[frind]);
-        if ( ++frind >= FKTSTACK )
-          frind = 0;
-      }
-      Serial.printf("\r\n *** ->%s max stack size reached: %d left", fkt, fm);
-    }
-  }
-  // store function call history
-  if ( strlen(fkt) < FNMLEN )
-    strcpy(&fktstack[fwind][0], fkt);
-  else {
-    memcpy(&fktstack[fwind][0], fkt, FNMLEN-1);
-    fktstack[fwind][FNMLEN-1] = '\0';
-  }
-  fktFree[fwind] = fm;
-  if ( ++fwind >= FKTSTACK )
-    fwind = 0;
-  // queue overflow, put read index one ahead
-  if ( fwind == frind ) {
-    if ( ++frind >= FKTSTACK )
-      frind = 0;
-  }
-}
-
-/* 
- * from: https://learn.adafruit.com/memories-of-an-arduino/measuring-free-memory
- */
-
-#ifdef __arm__
-// should use uinstd.h to define sbrk but Due causes a conflict
-extern "C" char* sbrk(int incr);
-#else  // __ARM__
-extern char *__brkval;
-#endif  // __arm__
-  
-int freeMemory() {
-  char top;
-#ifdef __arm__
-  return &top - reinterpret_cast<char*>(sbrk(0));
-#elif defined(CORE_TEENSY) || (ARDUINO > 103 && ARDUINO != 151)
-  return &top - __brkval;
-#else  // __arm__
-  return __brkval ? &top - __brkval : &top - __malloc_heap_start;
-#endif  // __arm__
-}
-
-/* ****************************************************************************** */
 
 void loop()
 {
   time_loop_started = mymillis();
-
-  check_stack("#loop#");
-
-  Serial.printf("\r\n%s loop #%u--RSSI:%f--%umV/%d%%--SocTemp:%fC--(%s,%s%s/%s,", \
-    BTconnected ? "=== BLE" : "=== ...", loop_cnt, SoCData.rssi, SoCData.voltage, SoCData.voltagePercent, SoCData.temperatureC, \
-    LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
-#ifdef RFD
-  Serial.print("RFduino) ===");
-#else
-  Serial.print("Simblee) ===");
-#endif
-
-  // show memory for debug
-  memAndStack("loop()");
+  
   // display current data from RFduino
   getSoCData();
-//  printSoCData();
+  myprintf("\r\n=== loop #%d === BT %s / RSSI: %f ", loop_cnt, BTconnected ? "ON" : "OFF", SoCData.rssi);
+  myprintf("=== %d mV (%d%%) === Soc Temp[C]: %f ===", SoCData.voltage, SoCData.voltagePercent, SoCData.temperatureC); 
 
   loop_cnt++;
 
@@ -616,8 +479,16 @@ void loop()
   // @FPV-UAV: system start with faster cycles, switch back after 10 rounds
   if ( (loop_cnt > 10) && (runPeriod != p->runPeriod) ) {
     runPeriod = p->runPeriod;
-    print_state("switch back to normal cycle time "); Serial.print(runPeriod); Serial.print(" min");
+    print_statef("switch back to normal cycle time %d min", runPeriod);
   }
+#endif
+
+  // display system config for remote debugging
+  print_statef("BLE: %s, %s%s from %s, HW: ", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME, LB_VERSION);
+#ifdef RFD
+  myprintf("RFduino");
+#else
+  myprintf("Simblee");
 #endif
 
   // @bertroode: wait for serial output in process
@@ -633,51 +504,51 @@ void loop()
       dataTransferBLE();
     }
     else {
-      print_state("no sensor data to transmit");
+      print_statef("no sensor data to transmit");
     }
   }
   else {
-    print_state("low Battery - go sleep");
+    print_statef("low Battery - go sleep");
   }
 
   // calculate sleep time ajusted to runPeriod cycle
   unsigned long sleep_time = (60000 * runPeriod) - (mymillis() - time_loop_started)%60000;
+//  print_statef("sleep_time = %l (0x%x)", sleep_time, sleep_time);
 
   // sanity check
   if ( sleep_time > 60000*10 ) {
     // in case of error set to 5 mins fix
-    print_state(" *** error in sleep time calculationm (sleep "); Serial.print(sleep_time);
-    Serial.print(" ms) set to 5 min fix");
+    print_statef(" *** error in sleep time calculationm (sleep %l ms) set to 5 min fix", sleep_time);
     sleep_time = 5*60000L;
   }
-  print_state("loop #"); Serial.print(loop_cnt-1); Serial.print(" - end - NFCReady = ");
-  Serial.print(NFCReady); Serial.print(", sleep for "); Serial.print(sleep_time/1000); Serial.print(" s");
-  
+  print_statef("loop #%d - end - NFCReady = %d, sleep for %l s", loop_cnt-1, NFCReady, sleep_time/1000);
+
   // @bertroode: wait for serial output in process
   Serial.flush();
   delay(100);
 
-#ifdef SERIALOFF
   Serial.end();         // reduce power consumption
-  delay(UARTDELAY);
-#endif SERIALOFF
-
 #ifdef RFD
   RFduino_ULPDelay(sleep_time);
 #else
   Simblee_ULPDelay(sleep_time);
 #endif
 
-#ifdef SERIALOFF
   Serial.begin(9600);
-  delay(UARTDELAY);
-#endif SERIALOFF
+  // time to settle, method in troduced by @bertrooode
+  // wait for serial interface up and running or if 5 secs are elapsed
+  unsigned long ct = mymillis();
+  do {
+    delay(100);
+  } while ( !Serial && ((mymillis()-ct) < 5000) );
+//  print_statef("serial interface ready after %d ms", mymillis()-ct);
 
   // @bertroode: reset CR95HF to be sure processing is stable /
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x01);
   digitalWrite(PIN_SPI_SS, HIGH);
   delay(1);
+
 }
 
 #ifdef USE_XBRIDGE2
@@ -691,14 +562,11 @@ void fillupMissingReadings(boolean debug)
   int difftime;
   unsigned long mytime;
 
-  check_stack("#fmr#");
-
   // ??
   minutesSinceProgramStart = (mymillis() / (60000));
   mytime = minutesSinceProgramStart;
 #ifdef DEBUG
-  print_state("fillupMissingReadings() - current time: ");
-  Serial.printf("%d (%d/%d), sensorData.minutesHistoryOffset: %d", mytime, mytime/15, mytime%15, sensorData.minutesHistoryOffset);
+  print_statef("fillupMissingReadings() - current time: %d (%d/%d), sensorData.minutesHistoryOffset: %d", mytime, mytime/15, mytime%15, sensorData.minutesHistoryOffset);
 #endif DEBUG
   // check complete queue for missing BG readings (0 entries)
   for ( int i = 0 ; i < DXQUEUESIZE ; i++ ) {
@@ -706,10 +574,8 @@ void fillupMissingReadings(boolean debug)
     unsigned long timeOfMissingBG_sec = (Pkts.buffer[i].ms+500)/1000;
     // if there is a missing BG reading and a valid time
     if ( (Pkts.buffer[i].raw == 0) && (Pkts.buffer[i].ms != 0) ) {
-      if ( debug ) {
-        print_state("");
-        Serial.printf("%d - timeOfMissingBG %d/%d ", i, timeOfMissingBG_sec/60, mytime);
-      }
+      if ( debug )
+        print_statef("%d - timeOfMissingBG %d/%d ", i, timeOfMissingBG_sec/60, mytime);
       nulls++;
       // if the missing value is not more than 15 min old search in trend array
       if ( (mymillis() - Pkts.buffer[i].ms)/1000 <= (15*60) ) {
@@ -724,7 +590,7 @@ void fillupMissingReadings(boolean debug)
           if ( difftime < 31 ) {
             Pkts.buffer[i].raw = scale_bg(sensorData.trend[j]);
             if ( debug )
-              Serial.printf(" - %d delta %d s, replacing with %d", i, difftime, (Pkts.buffer[i].raw+500)/1000);
+              Serial.printf(" - delta %d s, replacing with %d", difftime, (Pkts.buffer[i].raw+500)/1000);
             break;
           }
         }
@@ -739,23 +605,15 @@ void fillupMissingReadings(boolean debug)
           if ( difftime < 451 ) {
             Pkts.buffer[i].raw = scale_bg(sensorData.history[j]);
             if ( debug )
-              Serial.printf("(%d/%d min) - delta %d s, set BG %d", i, timeToHistoryEntry_sec/60, difftime, (Pkts.buffer[i].raw+500)/1000);
+              Serial.printf("(%d min) - delta %d s, set BG %d", timeToHistoryEntry_sec/60, difftime, (Pkts.buffer[i].raw+500)/1000);
             break;
           }
-        }
-        // not found or out of range (diiftime = 537 ...)
-        if ( Pkts.buffer[i].raw == 0 ) {
-          if ( debug )
-            print_state(" *** not found, set to histroy index 31");
-          Pkts.buffer[i].raw = scale_bg(sensorData.history[31]);
         }
       }
     }
   }
-  if ( nulls > 0 ) {
-    print_state("");
-    Serial.printf("found %d reading(s) for backfilling, stored in queue ...", nulls);
-  }
+  if ( nulls > 0 )
+    print_statef("backfill %d readings ...", nulls);
 }
 #endif USE_XBRIDGE2
 
@@ -765,8 +623,6 @@ void show_bg_queue(void)
 {
   int i;
   int nulls = 0;
-
-  check_stack("#sbgq#");
 
   print_state("BG Queue, read index: "); Serial.print(Pkts.read); Serial.print("\r\n");
   for ( i = 0 ; i < DXQUEUESIZE ; i++ ) {
@@ -781,14 +637,14 @@ void show_bg_queue(void)
 
 void show_trend_history(void)
 {
-//  sensorData.minutesSinceStart;
-  check_stack("#sth#");
+  sensorData.minutesSinceStart;
 
   print_state("--->BG trend:\r\n");
   for (int i = 0; i < 16; i++) {
     if ( i > 0 && !(i%4) )
       Serial.println("");
     // 1 min distance
+//    Serial.printf(" %f (%d min)", ((float)scale_bg(sensorData.trend[i])), sensorData.minutesSinceStart-i);
     Serial.printf(" %d (-%d min)", (scale_bg(sensorData.trend[i])+500)/1000, i);
   }
   if ( 0 ) {
@@ -808,6 +664,7 @@ void show_trend_history(void)
   for (int i = 0; i < 32; i++) {
     if ( i > 0 && !(i%4) )
       Serial.println("");
+//    Serial.printf(" %f (%d min)", ((float)scale_bg(sensorData.history[i])), sensorData.minutesSinceStart-((sensorData.minutesHistoryOffset)*60+(15*60*i))/60);
     Serial.printf(" %d (-%d min)", (scale_bg(sensorData.history[i])+500)/1000, ((sensorData.minutesHistoryOffset+15*i)));
   }
 }
@@ -819,9 +676,6 @@ void show_trend_history(void)
  * shadow FRAM processing - init routine for selective nfc reading
  */
 void initSensor(Sensor *sensor){
-
-  check_stack("#initsenor#");
-
     (*sensor).nextTrend = 0;
     (*sensor).oldNextTrend = 0;
     (*sensor).nextHistory = 0;
@@ -855,12 +709,8 @@ void initialFillupBackfillTimestamps(void)
 {
   unsigned long sim_time_ms;
   unsigned char store;
-
-  check_stack("#ifubft#");
-
   // fillup queue to transfer the last 8 for test direct after system start
-  print_state("prepare 8 h backfilling - current runtime = ");
-  Serial.printf("%d min", mymillis()/60000L);
+  print_statef("prepare 8 h backfilling - current runtime = %d min", mymillis()/60000L);
   store = sensorData.sensorStatusByte;
   sensorData.sensorStatusByte = 0x03; // needed for using the put_reading2queue() function without valid sensor data
   for ( int i = 0 ; i < FILL8H ; i++ ) {
@@ -881,7 +731,6 @@ void initialFillupBackfillTimestamps(void)
  */
 void NFC_wakeUP(int show)
 {
-  check_stack("#nfcWU#");
   if ( show )
     print_state("NFC_wakeUp()");
   digitalWrite(PIN_IRQ, HIGH);
@@ -894,10 +743,30 @@ void NFC_wakeUP(int show)
     Serial.print(" - done");
 }
 
+void NFC_CheckWakeUpEventRegister()
+{
+  int length = 5;
+  byte command[length];
+
+  print_state("NFC_CheckWakeUpEventRegister()");
+#ifdef RFD
+  while ( RFduinoBLE.radioActive );
+#else
+  while ( SimbleeBLE.radioActive );
+#endif
+
+  command[ 0] = 0x08;
+  command[ 1] = 0x03;
+  command[ 2] = 0x62;
+  command[ 3] = 0x01;
+  command[ 4] = 0x00;
+  send_NFC_PollReceive(command, sizeof(command));
+  print_NFC_WakeUpRegisterResponse();
+
+}
 void send_NFC_PollReceive(byte *command, int commandLength)
 {
 //  print_state("send_NFC_PollReceive() - ");
-  check_stack("#sndNFCPllRcv#");
   send_NFC_Command(command, commandLength);
   poll_NFC_UntilResponsIsReady();
   receive_NFC_Response();
@@ -907,7 +776,6 @@ void send_NFC_PollReceive(byte *command, int commandLength)
 void new_send_NFC_PollReceive(byte *command, int commandLength)
 {
 //  print_state("send_NFC_PollReceive() - ");
-  check_stack("#nwSndNFCPllRec#");
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x00);
   for (int i = 0; i < commandLength; i++)
@@ -943,7 +811,6 @@ void new_send_NFC_PollReceive(byte *command, int commandLength)
 
 void send_NFC_Command(byte *commandArray, int length)
 {
-//  check_stack("#nfcCmd#");
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x00);
   for (int i = 0; i < length; i++) {
@@ -957,9 +824,6 @@ void poll_NFC_UntilResponsIsReady()
 {
   unsigned long ms = mymillis();
   byte rb;
-
-//  check_stack("#pllNFCURisR#");
-
   digitalWrite(PIN_SPI_SS , LOW);
   while ( (resultBuffer[0] != 8) && ((mymillis() - ms) < NFCTIMEOUT) )
   {
@@ -975,7 +839,6 @@ void poll_NFC_UntilResponsIsReady()
 }
 void receive_NFC_Response()
 {
-//  check_stack("#recNFCRsp#");
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x02);
   resultBuffer[0] = SPI.transfer(0);
@@ -987,7 +850,6 @@ void receive_NFC_Response()
 
 void print_NFC_WakeUpRegisterResponse()
 {
-  check_stack("#pnwrr#");
   print_state("print_NFC_WakeUpRegisterResponse() - ");
   Serial.printf("Result code (byte 0): %x", resultBuffer[0]);
   Serial.printf(", Length of data (byte 1): %d", resultBuffer[1]);
@@ -1002,7 +864,6 @@ void print_NFC_WakeUpRegisterResponse()
 
 void SetNFCprotocolCommand(int show)
 {
-  check_stack("#stNFCPtCmd#");
   for (int t = 0; t < 9; t++)
   {
     if ( show )
@@ -1045,7 +906,6 @@ void SetNFCprotocolCommand(int show)
  */
 void runIDNCommand(int maxTrials)
 {
-  check_stack("#ridnc#");
   byte command[2];
   print_state("runIDNCommand() - ");
   command[0] = 0x01;
@@ -1060,23 +920,24 @@ void runIDNCommandUntilNoError(byte *command, int length, int maxTrials)
 {
   int count = 0;
   bool success;
-
-  check_stack("#ridncune#");
-
+//  print_state("runIDNCommandUntilNoError() - ");
   do
   {
+//    Serial.printf("Before: Count: %d, success: %b, resultBuffer[0]: %x", count, success, resultBuffer[0]);
     count++;
     memset(resultBuffer, 0, sizeof(resultBuffer));
     send_NFC_PollReceive(command, sizeof(command));
     success = idnResponseHasNoError();
+//    print_state(""); Serial.printf("After: Count: %d, success: %b, resultBuffer[0]: %x", count, success, resultBuffer[0]);
   } while ( !success && (count < maxTrials));
   delay(10);
+//  Serial.printf(", Exiting at count: %d, resultBuffer[0]: %x", count, resultBuffer[0]);
 }
 
 bool idnResponseHasNoError()
 {
-  check_stack("#idnrhne#");
-
+//  print_state("idnResponseHasNoError() - ");
+//  Serial.printf("IDN response is resultBuffer[0]: %x", resultBuffer[0]);
   if (resultBuffer[0] == 0x00)
   {
     return true;
@@ -1086,8 +947,6 @@ bool idnResponseHasNoError()
 
 IDNDataType idnDataFromIDNResponse()
 {
-  check_stack("#idndfir#");
-
   idnData.resultCode = resultBuffer[0];
   for (int i = 0; i < 13; i++)
   {
@@ -1098,24 +957,18 @@ IDNDataType idnDataFromIDNResponse()
   return idnData;
 }
 
-#define NFCDEVICEID 20      // length of NFC device ID (12)
-
 void printIDNData(IDNDataType idnData)
 {
-   char nfc[NFCDEVICEID];
-   int i;
-
-  check_stack("#prtIDNDta#");
-
+  String nfc = "";
+//  Serial.printf("Result code: %x, ", idnData.resultCode);
   Serial.printf("\r\n\tNFC Device ID: %x", idnData.deviceID[0]);
-  nfc[0] = (char) idnData.deviceID[0];
-  for ( i = 1; i < 12; i++)
+  nfc += (char) idnData.deviceID[0];
+  for (int i = 1; i < 12; i++)
   {
     Serial.printf(":%x", idnData.deviceID[i]);
-    nfc[i] = (char) idnData.deviceID[i];
+    nfc += (char) idnData.deviceID[i];
   }
-  nfc[i] = '\0';
-  Serial.printf(" (%s)", nfc);
+  Serial.printf(" ("); Serial.print(nfc); Serial.printf(")");
   Serial.printf("\r\n\tNFC Device CRC  %x:%x", idnData.romCRC[0], idnData.romCRC[1] );
 }
 
@@ -1126,8 +979,6 @@ void printIDNData(IDNDataType idnData)
 
 void runSystemInformationCommandUntilNoError(int maxTrials)
 {
-  check_stack("#rSysInfCmd#");
-
   memset(resultBuffer, 0, sizeof(resultBuffer));
   byte command[4];
   command[0] = 0x04;
@@ -1137,11 +988,8 @@ void runSystemInformationCommandUntilNoError(int maxTrials)
   delay(10);
   runNFCcommandUntilNoError(command, sizeof(command), maxTrials);
 }
-
 void runNFCcommandUntilNoError(byte *command, int length, int maxTrials)
 {
-  check_stack("#rNFCCmdUNErr#");
-
   int count = 0;
   bool success;
   do
@@ -1156,8 +1004,6 @@ void runNFCcommandUntilNoError(byte *command, int length, int maxTrials)
 
 bool responseHasNoError()
 {
-//  check_stack("#rspHsNoErr#");
-
   if (resultBuffer[0] == 0x80)
   {
     if ((resultBuffer[2] & 0x01) == 0)
@@ -1170,8 +1016,6 @@ bool responseHasNoError()
 
 SystemInformationDataType systemInformationDataFromGetSystemInformationResponse()
 {
-  check_stack("#sysInfDta#");
-
   SystemInformationDataType systemInformationData;
   systemInformationData.resultCode = resultBuffer[0];
   systemInformationData.responseFlags = resultBuffer[2];
@@ -1180,9 +1024,12 @@ SystemInformationDataType systemInformationDataFromGetSystemInformationResponse(
     if ((systemInformationData.responseFlags & 0x01) == 0)
     {
       systemInformationData.infoFlags = resultBuffer[3];
+//      print_state("UID: ");
       for (int i = 0; i < 8; i++)
       {
         systemInformationData.uid[i] = resultBuffer[11 - i];
+//        Serial.print(systemInformationData.uid[i], HEX);
+//        Serial.print(" ");
       }
       systemInformationData.errorCode = resultBuffer[resultBuffer[1] + 2 - 1];
     }
@@ -1204,16 +1051,17 @@ SystemInformationDataType systemInformationDataFromGetSystemInformationResponse(
 
 void printSystemInformationData(SystemInformationDataType systemInformationData)
 {
-  check_stack("#psid#");
-
-  print_state("");
-  Serial.printf("Sensor SN: %s", systemInformationData.sensorSN);
+//  print_state("getSystemInformationData()");
+//  Serial.printf("Result code: %x", systemInformationData.resultCode);
+//  Serial.printf(", Response flags: %x", systemInformationData.responseFlags);
+//  print_state("");
+//  Serial.print(" - Sensor SN:");
+  print_statef("Sensor SN: %s", systemInformationData.sensorSN.cstr());
+//  Serial.printf(", Error code: %x - done", systemInformationData.errorCode);
 }
 
 void clearBuffer(byte *tmpBuffer)
 {
-  check_stack("#clrb#");
-
   memset(tmpBuffer, 0, sizeof(tmpBuffer));
 }
 
@@ -1224,7 +1072,7 @@ bool readSensorData()
   int maxTrials = 10;
   bool crcResult = false;
 
-  check_stack("#rsdta#");
+//  print_state("readSensorData()");
 
   if ( !use_shadowfram ) {
     clearBuffer(dataBuffer);
@@ -1253,7 +1101,7 @@ bool readSensorData()
       crcResult = true;
     else { 
       crcResult = false;
-      Serial.printf(" - failed, CRC check (Header-Body-Footer) = %d %d %d", resultH, resultB, resultF);
+      myprintf(" - failed, CRC check (Header-Body-Footer) = %d %d %d", resultH, resultB, resultF);
     }
     if (crcResult) NFCReady = 2;
     else NFCReady = 1;
@@ -1297,7 +1145,7 @@ bool readSensorData()
       crcResult = true;
     else { 
       crcResult = false;
-      Serial.printf(" - failed, CRC check (Header-Body-Footer) = %d %d %d", resultH, resultB, resultF);
+      myprintf(" - failed, CRC check (Header-Body-Footer) = %d %d %d", resultH, resultB, resultF);
     }
    
     if (crcResult) NFCReady = 2;
@@ -1316,9 +1164,6 @@ byte ReadSingleBlockReturn(int blockNum)
 {
   int length = 5;
   byte command[length];
-
-  check_stack("#rsbr#");
-
   command[0] = 0x04;
   command[1] = 0x03;
   command[2] = 0x03;
@@ -1336,8 +1181,6 @@ byte ReadSingleBlockReturn(int blockNum)
  */
 void nfcInit()
 {
-  check_stack("#nfci#");
-
   configSPI();
   NFC_wakeUP(1);
   NFCReady = 0;
@@ -1355,9 +1198,6 @@ void sendNFC_ToHibernate()
 //  print_state("sendNFC-ToHibernate()");
   int length = 16;
   byte command[length];
-
-  check_stack("#snfcthib#");
-
   command[ 0] = 0x07;
   command[ 1] = 0x0E;
   command[ 2] = 0x08;
@@ -1382,8 +1222,6 @@ void sendNFC_ToHibernate()
  */
 void configSPI()
 {
-  check_stack("#cspi#");
-
   print_state("configSPI()");
   pinMode(PIN_SPI_SS, OUTPUT);
   pinMode(PIN_IRQ, OUTPUT);
@@ -1397,8 +1235,6 @@ void configSPI()
 /* ****************************** shadow FRAM code ****************************************** */
 
 void sendSPICommand(int ssPin, byte *commandArray, int length) {
-  check_stack("#sspic#");
-
     digitalWrite(ssPin, LOW);
     
     SPI.transfer(0x00);  // SPI control byte to send command to CR95HF
@@ -1411,12 +1247,14 @@ void sendSPICommand(int ssPin, byte *commandArray, int length) {
 }
 
 void pollSPIUntilResponsIsReady(int ssPin, byte *RXBuffer) {
-  check_stack("#pspiurir#");
     
     digitalWrite(ssPin , LOW);
     
     while(RXBuffer[0] != 8) {
         RXBuffer[0] = SPI.transfer(0x03);  // Write 3 until
+#ifdef DEBUG
+//        Serial.printf("\tSPI polling response byte:%x\r\n", RXBuffer[0]);
+#endif
         RXBuffer[0] = RXBuffer[0] & 0x08;  // bit 3 is set in response byte
     }
     digitalWrite(ssPin, HIGH);
@@ -1424,7 +1262,6 @@ void pollSPIUntilResponsIsReady(int ssPin, byte *RXBuffer) {
 }
 
 void receiveSPIResponse(int ssPin, byte *RXBuffer) {
-  check_stack("#rspir#");
     
     digitalWrite(ssPin, LOW);
     SPI.transfer(0x02);   // SPI control byte for read
@@ -1441,7 +1278,6 @@ void receiveSPIResponse(int ssPin, byte *RXBuffer) {
 
 
 void sendPollReceiveSPINew(int ssPIN, byte *command, int commandLength, byte *RXBuffer) {
-  check_stack("#sprspinw#");
     
     // step 1 send the command, which is stored in RXBuffer
     sendSPICommand(ssPIN, command, commandLength);
@@ -1467,9 +1303,6 @@ void sendPollReceiveSPINew(int ssPIN, byte *command, int commandLength, byte *RX
 byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, int ssPIN) {
 
     byte command[5];
-
-  check_stack("#rsb#");
-
     command[ 0] = SENDRECEIVE;   // command code for send receive CR95HF command
     command[ 1] = 0x03;          // length of data that follows (3 bytes)
     // command[ 2] = 0x02;          // request Flags byte, single carrier, high data rate
@@ -1486,8 +1319,7 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
         #ifdef DEBUG
         // Print to Serial for debugging
         if (RXBuffer[0] == 0x80)  {
-            print_state("readSingleBlock: block #");
-            Serial.printf("%d:", blockNum);
+            print_statef("readSingleBlock: block #%d:", blockNum);
 #ifdef FRAM_DEBUG
             for (byte i = 3; i < RXBuffer[1] + 3 - 4; i++) {
                 Serial.print(RXBuffer[i], HEX);
@@ -1495,8 +1327,7 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
             }
 #endif
         } else {
-            print_statef("readSingleBlock: block #");
-            Serial.printf("%d not available, response code is: ", blockNum);
+            print_statef("readSingleBlock: block #%d not available, response code is: ", blockNum);
             Serial.println(RXBuffer[0], HEX);
         }
 //        Serial.println(" ");
@@ -1520,8 +1351,6 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
 void readHeader(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
     int maxTrials = 10; // (Re)read a block max four times
-
-  check_stack("#rh#");
 #ifdef DEBUG
     print_state("read header");
 #endif
@@ -1545,7 +1374,6 @@ void readHeader(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
 // read complete body data
 void readBody(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
-  check_stack("#rb#");
 
     int maxTrials = 10; // (Re)read a block max four times
 #ifdef DEBUG
@@ -1688,7 +1516,6 @@ void readBody(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 }
 
 void readFooter(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
-  check_stack("#rf#");
 
     int maxTrials = 10; // (Re)read a block max four times
 #ifdef DEBUG
@@ -1714,8 +1541,6 @@ void readFooter(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
 
 void reReadBlocksWhereResultCodeStillHasEnError(byte *RXBuffer,  Sensor *sensor, int SS_Pin) {
     int maxTrials = 3;
-  check_stack("#rrbwrcshee#");
-
     for (byte block = 0; block < 40; block++) {
         if ((*sensor).resultCodes[block] != 0x80) {
             (*sensor).resultCodes[block] =  readSingleBlock(block, maxTrials, RXBuffer, (*sensor).fram, SS_PIN);
@@ -1735,8 +1560,6 @@ void reReadBlocksWhereResultCodeStillHasEnError(byte *RXBuffer,  Sensor *sensor,
 uint16_t readVDD() {
   uint16_t value;
 
-  check_stack("#rvdd#");
-
   // Compare VDD against VBG(1.2v reference) at 10 bit resolution
   NRF_ADC->CONFIG = 0x0000001A;
   NRF_ADC->ENABLE = 0x00000001; // Enable the ADC
@@ -1751,15 +1574,13 @@ uint16_t readVDD() {
 
 void getSoCData()
 {
-  check_stack("#gsocd#");
-
   analogReference(VBG);
   analogSelection(VDD_1_3_PS);
 #ifdef RFD
   uint16_t sensorValue1 = readVDD();
-  print_state(""); Serial.printf("readVDD() = %d, ", sensorValue1);
+  print_statef("readVDD() = %d", sensorValue1);
   int sensorValue = analogRead(1);
-  Serial.printf("analogRead(1) = %d, ", sensorValue);
+  print_statef("analogRead(1) = %d", sensorValue);
   SoCData.voltage = sensorValue * (360 / 1023.0) * 10;
   SoCData.temperatureC = RFduino_temperature(CELSIUS);
   SoCData.temperatureF = RFduino_temperature(FAHRENHEIT);
@@ -1769,9 +1590,7 @@ void getSoCData()
   SoCData.temperatureC = Simblee_temperature(CELSIUS);
   SoCData.temperatureF = Simblee_temperature(FAHRENHEIT);
 #endif
-  Serial.printf(", TempC = %f", SoCData.temperatureC);
   SoCData.voltagePercent = map(SoCData.voltage, MIN_VOLTAGE, MAX_VOLTAGE, 0, 100);
-  Serial.printf(", Batt = %d", SoCData.voltagePercent);
   if (SoCData.voltage < MIN_VOLTAGE) 
     BatteryOK = false;
   else 
@@ -1780,24 +1599,19 @@ void getSoCData()
 
 void printSoCData(void)
 {
-  check_stack("#prtSoCDt#");
-
   print_state("SoC Data:");
-  Serial.printf("\r\n\tU[mv]: %d (%d%%)", SoCData.voltage, SoCData.voltagePercent);
+  Serial.printf("\r\n\tU[mv]: %d (%d", SoCData.voltage, SoCData.voltagePercent); Serial.print("%)");
   Serial.printf("\r\n\tSoC Temp[C]: %f Temp[F]: %f", SoCData.temperatureC, SoCData.temperatureF);
-  Serial.printf("\r\n\tRSSI: %f", SoCData.rssi);
+  Serial.printf("\r\n\tRSSI: %d", SoCData.rssi);
 }
 
 int scale_bg(int glucose)
 {
-  check_stack("#sbg#");
   return((glucose/8.5f)*1000.0f);
 }
 
 void apply_spike_filter(void)
 {
-  check_stack("#asf#");
-
   if ( firstRun == 1  ) {
     firstRun = 0;
     lastGlucose = sensorData.trend[0];
@@ -1818,8 +1632,6 @@ void apply_spike_filter(void)
 
 void readAllData()
 {
-  check_stack("#rdAllDta#");
-
   NFC_wakeUP(0);
   NFCReady = 0;
   SetNFCprotocolCommand(0);
@@ -1843,20 +1655,22 @@ void readAllData()
   }
   // if we have a new or changed sensor UID initialize
   if ( !identical ) {
-    Serial.print("reinitialize sensor data structure");
+    myprintf("reinitialize sensor data structure");
     initSensor(&sensor);
   }
   // after reinitialization store the current UID for the next loop 
   memcpy(sensor.oldUid, systemInformationData.uid, sizeof(sensor.uid));
-#endif USE_SHADOWFRAM
+#endif /* USE_SHADOWFRAM */
 
   sensorData.sensorDataOK = readSensorData();
+
+//  print_state("entering decodeSensorData()");
 
   if ( sensorData.sensorDataOK ) {
     decodeSensor();
 #ifdef USE_SPIKE_FILTER
     apply_spike_filter();
-#endif USE_SPIKE_FILTER 
+#endif /* USE_SPIKE_FILTER */ 
     put_reading2queue(mymillis(), sensorData.trend[0], 1);
   }
   else {
@@ -1864,20 +1678,26 @@ void readAllData()
     put_reading2queue(mymillis(), 0, 1);
   }
   sendNFC_ToHibernate();
+  #ifdef DEBUG
+//  show_trend_history();
+  #endif
 }
 
 /*
  * print some sensor data
  */
+
 void displaySensorData()
 {
-  check_stack("#dsd#");
-
   if (!sensorData.sensorDataOK) 
     print_state("Sensor data error");
-  else {
-    print_state("BG raw reading: ");
-    Serial.printf("%d, therm. temp est.: %f", sensorData.trend[0], sensorData.trendTemperature[0]);
+  else
+  {
+    print_statef("BG raw reading: %d, temperature: %f", sensorData.trend[0], sensorData.trendTemperature[0]);
+//    print_statef("next trend position: %d, next history position: %d", sensorData.nextTrend, sensorData.nextHistory);
+//    print_state("minutes since sensor start: "); Serial.print(sensorData.minutesSinceStart);
+//    Serial.printf(", minutes to most recent history: -%d min", sensorData.minutesHistoryOffset);
+//    print_state("current raw BG reading: "); Serial.print(sensorData.trend[0]);
   }
 }
 
@@ -1891,8 +1711,6 @@ float decode_temperature(byte *buf)
   float NTC;
   float Temp;
 
-  check_stack("#dtemp#");
-
   currentTemp = ((buf[1]*256)+buf[0]) & 0x3FFF;
   NTC = currentTemp * 11.44;
   Temp = 22.124 * log(309443.81/NTC);
@@ -1903,60 +1721,49 @@ float decode_temperature(byte *buf)
 /*
  * decode the sensors serial number (according to @UPetersen's reference)
  */
-
-static char decodedSensorSN[15];
-
-char *decodeSN(byte *data)
+String decodeSN(byte *data)
 {
   byte uuid[8];
-  char lookupTable[32] =
+  String lookupTable[32] =
   {
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-    'A', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L',
-    'M', 'N', 'P', 'Q', 'R', 'T', 'U', 'V', 'W', 'X',
-    'Y', 'Z'
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "A", "C", "D", "E", "F", "G", "H", "J", "K", "L",
+    "M", "N", "P", "Q", "R", "T", "U", "V", "W", "X",
+    "Y", "Z"
   };
-  byte uuidShort[8];    // UUID from the sensor FRAM
-  char binary[70];      // contains at most 8 x 8 digits in ASCII = 64
-  char binS[10];        // binary byte in ASCII, 8 chars with leading ZEROs
-  binS[0] = '\0';
-  char bbyte[10];       // direct conversiopn result with itoa(), between 1 to 8 bytes
-  int i;
-
-  check_stack("#decSN#");
-
-  for (int i = 2; i < 8; i++)  
-    uuidShort[i - 2] = data[i];
+  byte uuidShort[8];
+  for (int i = 2; i < 8; i++)  uuidShort[i - 2] = data[i];
   uuidShort[6] = 0x00;
   uuidShort[7] = 0x00;
-
-  // convert the raw ID to ASCII binary
-  binary[0] = '\0';
+  String binary = "";
+  String binS = "";
   for (int i = 0; i < 8; i++)
   {
-    itoa(uuidShort[i], bbyte, 2);
-    int l = strlen(bbyte);
-    if      (l == 1) sprintf(binS, "%s%s", "0000000", bbyte);
-    else if (l == 2) sprintf(binS, "%s%s", "000000", bbyte);
-    else if (l == 3) sprintf(binS, "%s%s", "00000", bbyte);
-    else if (l == 4) sprintf(binS, "%s%s", "0000", bbyte);
-    else if (l == 5) sprintf(binS, "%s%s", "000", bbyte);
-    else if (l == 6) sprintf(binS, "%s%s", "00", bbyte);
-    else if (l == 7) sprintf(binS, "%s%s", "0", bbyte);
-    else if (l == 8) strcpy(binS, bbyte);
-    strcat(binary, binS);
+    binS = String(uuidShort[i], BIN);
+    int l = binS.length();
+    if (l == 1) binS = "0000000" + binS;
+    // @bertroode: to fix an error in the reference implementation from @UPetersen
+    else if (l == 4) binS = "0000" + binS;
+    else if (l == 5) binS = "000" + binS;
+    else if (l == 6) binS = "00" + binS;
+    else if (l == 7) binS = "0" + binS;
+    binary += binS;
   }
-  strcpy(decodedSensorSN, "0");
+
+//  print_state("decodeSN #1: "); Serial.print(binary);
+
+  String v = "0";
   char pozS[5];
-  for ( i = 0; i < 10; i++)
+  for (int i = 0; i < 10; i++)
   {
-    for (int k = 0; k < 5; k++)
-      pozS[k] = binary[(5 * i) + k];
+    for (int k = 0; k < 5; k++) pozS[k] = binary[(5 * i) + k];
     int value = (pozS[0] - '0') * 16 + (pozS[1] - '0') * 8 + (pozS[2] - '0') * 4 + (pozS[3] - '0') * 2 + (pozS[4] - '0') * 1;
-    decodedSensorSN[i+1] = lookupTable[value];
+    v += lookupTable[value];
   }
-  decodedSensorSN[i+1] = '\0';        // append delemite
-  return(&decodedSensorSN[0]);
+
+//  print_state("decodeSN #2: "); Serial.print(v);
+
+  return v;
 }
 
 /*
@@ -1964,10 +1771,8 @@ char *decodeSN(byte *data)
  * glucose of 0 values indicates a missed reading which has to be filled from the trend/history buffer
  * of the Libre sensor before sending (backfilling)
  */
-int put_reading2queue(unsigned long current_time_ms, int glucose, int debug)
+int put_reading2queue(unsigned long current_time_ms, int glucose, bool debug)
 {
-  check_stack("#prtoq#");
-
   Pkts.buffer[Pkts.write].raw = scale_bg(glucose);
   Pkts.buffer[Pkts.write].ms = current_time_ms;
   pkt_time = current_time_ms;
@@ -1975,24 +1780,19 @@ int put_reading2queue(unsigned long current_time_ms, int glucose, int debug)
 #ifndef USE_DEAD_SENSOR
   // test for dead sensor, check the sensor status byte
   if ( sensorData.sensorStatusByte != 0x03 ) {
-    print_state(" *** sensor not ready: ");
-    Serial.printf("%d", sensorData.sensorStatusByte);
+    print_statef(" *** sensor not ready: %d", sensorData.sensorStatusByte);
     Pkts.buffer[Pkts.write].raw = 0; 
     return(0);
   }
 #endif
 
-  if ( debug ) {
-    print_state("");
-    Serial.printf("got glucose(%f) at %d min, stored at %d, inc. write to ", \
-      scale_bg(glucose)/1000.0, current_time_ms/60000, Pkts.write); 
-  }
+  if ( debug )
+    print_statef("got glucose(%d.%d) at %d min, stored at %d, inc. write to ", scale_bg(glucose)/1000, scale_bg(glucose)%1000, current_time_ms/60000, Pkts.write); 
   // so increment write position for next round...
   if ( ++Pkts.write >= DXQUEUESIZE )
     Pkts.write = 0;
-  if ( debug ) {
-    Serial.print(Pkts.write); Serial.print(" - ");
-  }
+  if ( debug )
+    Serial.print(Pkts.write);
   if (Pkts.read == Pkts.write) {
     if ( debug )
       print_state("queue overflow, incrementing read overwriting oldest entry");
@@ -2006,35 +1806,33 @@ int put_reading2queue(unsigned long current_time_ms, int glucose, int debug)
  */
 void decodeSensorHeader()
 {
-  check_stack("#dsh#");
-
   sensorData.sensorStatusByte = sensorDataHeader[4];
 //  print_state("decodeSensorHeader()"); 
   switch (sensorData.sensorStatusByte)
   {
     case 0x01:
-      strcpy(sensorData.sensorStatusString, "not yet started");
+      sensorData.sensorStatusString = "not yet started";
       break;
     case 0x02:
-      strcpy(sensorData.sensorStatusString, "starting");
+      sensorData.sensorStatusString = "starting";
       break;
     case 0x03:      // normal operation, 14 days and 12 h
-      strcpy(sensorData.sensorStatusString, "READY");
+      sensorData.sensorStatusString = "READY";
       break;
     case 0x04:      // sensor operation is terminated, this status remains the next 12 h
-      strcpy(sensorData.sensorStatusString, "EXPIRED");
+      sensorData.sensorStatusString = "EXPIRED";
       break;
     case 0x05:      // sensor operation is terminated, end status
-      strcpy(sensorData.sensorStatusString, "SHUTDOWN");
+      sensorData.sensorStatusString = "SHUTDOWN";
       break;
     case 0x06:
-      strcpy(sensorData.sensorStatusString, "failure");
+      sensorData.sensorStatusString = "failure";
       break;
     default:
-      strcpy(sensorData.sensorStatusString, "unknown state");
+      sensorData.sensorStatusString = "unknown state";
       break;
   }
-  Serial.printf(" - Sensor status: %s", sensorData.sensorStatusString);
+  myprintf(" - Sensor status: %s", sensorData.sensorStatusString.cstr());
 }
 
 /*
@@ -2047,8 +1845,6 @@ void decodeSensorBody()
 //  print_state("decodeSensorBody() - ");
   byte pomiar[6];
 
-  check_stack("#dsb#");
-
   // calculate block indices for trend/history
   sensorData.nextTrend = sensorDataBody[2];
   sensorData.nextHistory = sensorDataBody[3];
@@ -2058,6 +1854,8 @@ void decodeSensorBody()
   minut[0] = sensorDataBody[293];
   minut[1] = sensorDataBody[292];
   sensorData.minutesSinceStart = minut[0] * 256 + minut[1];
+  
+//  print_state("sensor minutes since start: "); Serial.print(sensorData.minutesSinceStart);
   
   // store sensor livetime at program start
   if ( startMinutesSinceStart == 0 ) {
@@ -2069,11 +1867,18 @@ void decodeSensorBody()
   // count the minutes from program start using sensor minutes counter
 #ifdef SIM_MINUTES_UPCOUNT
   // simulate upcounting minutes using a dead sensor
+//  print_state("adding "); Serial.printf(" %d * %d = %d", loop_cnt-1, runPeriod, (loop_cnt-1)*runPeriod);
   sensorData.minutesSinceStart += (loop_cnt-1)*runPeriod;
 #endif
   minutesSinceProgramStart = sensorData.minutesSinceStart - startMinutesSinceStart;
+  print_statef("runtime %d min (%d - %d)", minutesSinceProgramStart, sensorData.minutesSinceStart, startMinutesSinceStart);
   // calculate minute distance to most recent history entry
   sensorData.minutesHistoryOffset = (sensorData.minutesSinceStart - 3) % 15 + 3 ;
+/*
+  print_state("index/pointer/minutes:");
+  myprintf("\r\n\tnext trend block #%d, next history block #%d", sensorData.nextTrend, sensorData.nextHistory);
+  myprintf("\r\n\tminutes elapsed: %d, minutes distance to most recent history value: -%d", sensorData.minutesSinceStart, sensorData.minutesHistoryOffset);
+*/
   // copy 16 trend data
   int index = 0;
   for (int i = 0; i < 16; i++)                              
@@ -2082,6 +1887,7 @@ void decodeSensorBody()
     if (index < 4) index = index + 96;
     for (int k = index; k < index + 6; k++) 
       pomiar[k - index] = sensorDataBody[k];
+//    sensorData.trend[i] = ((pomiar[1] << 8) & 0x0F00) + pomiar[0];
     // 13 Bits for raw BG reading are valid with the Libre sensor
     // meanwhile also hardcoded in xDrip+ (manual scan via NFC and blucon)
     sensorData.trend[i] = ((pomiar[1] << 8) & 0x1F00) + pomiar[0];
@@ -2112,12 +1918,12 @@ void decodeSensorBody()
     for (int k = index; k < index + 6; k++) pomiar[k - index] = sensorDataBody[k];
     sensorData.history[i] = ((pomiar[1] << 8) & 0x0F00) + pomiar[0];
   }
+//  Serial.print(" - done");
 }
 
 void decodeSensorFooter()
 {
-//  memAndStack("decodeSensorFooter()");
-  check_stack("#dsf#");
+
 }
 
 /*
@@ -2125,8 +1931,6 @@ void decodeSensorFooter()
  */
 void decodeSensor()
 {
-  check_stack("#ds#");
-
   for (int i = 0; i < 24; i++) sensorDataHeader[i] = dataBuffer[i];
   for (int i = 24; i < 320; i++) sensorDataBody[i - 24] = dataBuffer[i];
   for (int i = 320; i < 344; i++) sensorDataFooter[i - 320] = dataBuffer[i];
@@ -2171,9 +1975,6 @@ uint16_t computeCRC16(void *bytes, byte type)
 {
   int number_of_bytes_to_read = 0;
   int offset = 0;
-
-  check_stack("#ccrc16#");
-
   if (type == 0)
   {
     number_of_bytes_to_read = 24;
@@ -2208,9 +2009,6 @@ bool checkCRC16(void *bytes, byte type)
 {
   int number_of_bytes_to_read = 0;
   int offset = 0;
-
-  check_stack("#ccrc16#");
-
   if (type == 0)
   {
     number_of_bytes_to_read = 24;
@@ -2238,8 +2036,6 @@ bool checkCRC16(void *bytes, byte type)
 
 void setupBluetoothConnection()
 {
-  check_stack("#sblec#");
-
   print_state("setupBluetoothConnection()");
 #ifdef RFD
   if (protocolType == 1) RFduinoBLE.deviceName = LB_NAME;
@@ -2280,20 +2076,15 @@ void setupBluetoothConnection()
  */
 void dataTransferBLE()
 {
-  check_stack("#dtble#");
-
-  if ( !BTconnected ) {
-    print_state("");
-    Serial.printf("dataTransferBLE(), wait 40 s for BLE connect (protocolType = %d) ...", protocolType);
-  }
+  if ( !BTconnected )
+//  if ( BTconnected )
+//    print_state("transfer data via BLE ...");
+//  else
+    print_statef("dataTransferBLE(), wait 40 s for BLE connect (protocolType = %d) ...", protocolType);
   for (int i = 0; i < 40; i++) {
     if (BTconnected) {
       if (protocolType == 1)      
         sendToXdripViaBLE();
-      else {
-        print_state("");
-        Serial.printf(" *** wrong protocol type %d", protocolType);
-      }
       break;
     }
     else {
@@ -2308,25 +2099,26 @@ void dataTransferBLE()
  */
 void sendToXdripViaBLE(void)
 {
-  check_stack("#stxvble#");
+//  print_state("sendToXdripViaBLE");
 
 #ifndef USE_XBRIDGE2
   // LimiTTer styl as ASCII string
   noOfBuffersToTransmit = 1;
-
-  TxBuffer[0] = '\0';
-  sprintf(TxBuffer, "%d %d %d %d", \ 
-    sensorData:TREND[0] * 100, SoCData.voltage, SoCData.voltagePercent, sensorData.minutesSinceProgramStart/10);
-
-  print_state("sendToXdripViaBLE: ");
-  Serial.printf("%s", TxBuffer);
+  TxBuffer1 = "";
+  TxBuffer1 += String(sensorData.trend[0] * 100);
+  TxBuffer1 += " ";
+  TxBuffer1 += String(SoCData.voltage);
+  TxBuffer1 += " ";
+  TxBuffer1 += String(SoCData.voltagePercent);
+  TxBuffer1 += " ";
+  TxBuffer1 += String((int)(sensorData.minutesSinceStart / 10));
+  int  LL = TxBuffer1.length();
+  print_statef("sendToXdripViaBLE: %s", TxBuffer1.cstr());
+//  Serial.println(LL);
 #ifdef RFD
-  // send is queued (the ble stack delays send to start of next tx window)
-  while ( !RFduinoBLE.send(TxBuffer, strlen(TxBuffer)) );
-//  while ( RFduinoBLE.radioActive);
+  RFduinoBLE.send(TxBuffer1.cstr(), TxBuffer1.length());
 #else
-  SimbleeBLE.send(TxBuffer, strlen(TxBuffer));
-//  while ( SimbleeBLE.radioActive);
+  SimbleeBLE.send(TxBuffer1.cstr(), TxBuffer1.length());
 #endif
 #else /* USE_XBRIDGE2 */
   boolean resend_pkt = 0;
@@ -2345,7 +2137,7 @@ void sendToXdripViaBLE(void)
       for ( j = 0 ; j < 10 ; j++ ) {
         waitDoingServicesInterruptible(1000, &got_ack, 1);
         if ( !BTconnected ) {
-          print_state("BLE connection lost during 10 s wait for ack, go to sleep");
+          print_state("connection lost during wait for ack, go to sleep");
           break;
         }
       }
@@ -2361,7 +2153,6 @@ void sendToXdripViaBLE(void)
       if ( ++Pkts.read >= DXQUEUESIZE )
         Pkts.read = 0;     //increment read position since we got an ack for the last package
       Serial.print(Pkts.read);
-      Serial.print(" - ");
       resend_pkt = 0;
     }
     else {
@@ -2382,14 +2173,15 @@ void sendToXdripViaBLE(void)
   if ( 0 ) {
 //  if ( ((loop_cnt % 12) == 0) && (last_raw != 0) )
     if ( got_ack ) {
-      char packet[30];
+      String packet = "";
       // build a LimiTTer string
-      packet[0] = '\0';
+      packet = String(last_raw); packet += ' '; packet += "216"; packet += ' ';
       batteryPcnt = min(map(SoCData.voltage, MIN_VOLTAGE, MAX_VOLTAGE, 0, 100), 100); // Convert voltage to percentage
-      sprintf(packet, "%s 216 %s %s", last_raw, batteryPcnt, sensorData.minutesSinceStart);
-      print_state("");
-      Serial.printf("send sensor lifetime in LimiTTer ASCII format: [%s]", packet);
-      send_data((unsigned char*)packet, strlen(packet));
+      packet += String(batteryPcnt); packet += ' '; 
+      packet += String(sensorData.minutesSinceStart);
+      print_statef("send sensor lifetime in LimiTTer ASCII format: [");
+      Serial.print(packet); Serial.print("]");
+      send_string(packet, 500);
       waitDoingServices(1000, 1);
       last_raw = 0;
     }
@@ -2401,8 +2193,6 @@ void sendToXdripViaBLE(void)
 // BLE char buffer status
 boolean bleCharAvailable(void)
 {
-  check_stack("#bca#");
-
   if ( bleBufRi == bleBufWi )
     return (0);
   else
@@ -2413,8 +2203,6 @@ boolean bleCharAvailable(void)
 unsigned char bleBufRead(void)
 {
   unsigned char ret = 0xFF;
-
-  check_stack("#bbr#");
 
   if ( bleBufRi != bleBufWi ) {
     ret = bleBuf[bleBufRi++];
@@ -2430,8 +2218,6 @@ unsigned char bleBufRead(void)
 // write char into BEL char buffer, called from IRQ
 void bleBufWrite(unsigned char c)
 {
-  check_stack("#bbw#");
-
   bleBuf[bleBufWi++] = c;
   if ( bleBufWi >= BLEBUFLEN )
     bleBufWi = 0;
@@ -2442,17 +2228,12 @@ void bleBufWrite(unsigned char c)
 void RFduinoBLE_onReceive(char *data, int len)
 {
   int i;
-
-  check_stack("#onr#");
-
   for ( i = 0 ; i < len ; i++ )
     bleBufWrite(data[i]);
 }
 
 void RFduinoBLE_onDisconnect()
 {
-  check_stack("#odis#");
-
   BTconnected = false;
 #ifdef SHOW_BLESTATECHANGE
   print_state("+++++++++++++ BLE lost");
@@ -2461,8 +2242,6 @@ void RFduinoBLE_onDisconnect()
 
 void RFduinoBLE_onConnect()
 {
-  check_stack("#onc#");
-
   BTconnected = true;
 #ifdef SHOW_BLESTATECHANGE
   print_state("+++++++++++++ BLE conn");
@@ -2471,7 +2250,6 @@ void RFduinoBLE_onConnect()
 
 void RFduinoBLE_onRSSI(int rssi)
 {
-  check_stack("#onRSSI#");
   SoCData.rssi = rssi;
 }
 
@@ -2485,14 +2263,12 @@ bool BLEconnected()
 void SimbleeBLE_onReceive(char *data, int len)
 {
   int i;
-  check_stack("#orc#");
   for ( i = 0 ; i < len ; i++ )
     bleBufWrite(data[i]);
 }
 
 void SimbleeBLE_onDisconnect()
 {
-  check_stack("#odis#");
   BTconnected = false;
 #ifdef SHOW_BLESTATECHANGE
   print_state("+++++++++++++ BLE lost");
@@ -2501,7 +2277,6 @@ void SimbleeBLE_onDisconnect()
 
 void SimbleeBLE_onConnect()
 {
-  check_stack("#ocon#");
   BTconnected = true;
 #ifdef SHOW_BLESTATECHANGE
   print_state("+++++++++++++ BLE conn");
@@ -2510,7 +2285,6 @@ void SimbleeBLE_onConnect()
 
 void SimbleeBLE_onRSSI(int rssi)
 {
-  check_stack("#orssi#");
   SoCData.rssi = rssi;
 }
 
@@ -2529,10 +2303,8 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
 {
   nRawRecord msg;
   unsigned char msgbuf[80];
-  check_stack("#sbgvb#");
 
-  print_state("");
-  Serial.printf("sendBGOverBLE(%d), delay %d min", pPkt->raw/1000, (mymillis() - pPkt->ms)/60000);
+  print_statef("sendBGOverBLE(%d), delay %d min", pPkt->raw/1000, (mymillis() - pPkt->ms)/60000);
 
   if ( !BTconnected ) {
     print_state("no BT connection, skip");
@@ -2570,56 +2342,25 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
   *(unsigned char *)&msgbuf[20] = msg.function;
 
   // send the message via BLE
-#ifdef BLE_REAL_LEN
   send_data((unsigned char *)&msgbuf, msg.size);
-  // limit length to 20 for one BLE packet
-  // last element .function will be ignored by xDrip+ anyway
-#else
-  send_data((unsigned char *)&msgbuf, 20);
-#endif
 
   return (1);
 }
 
 /*
- * send a raw data packet via BLE
+ * send a raw data üacket via BLE
  */
-
-#define MAXBLELEN 20
-
 void send_data(unsigned char *msg, unsigned char len)
 {
   unsigned char i = 0;
-  check_stack("#sd#");
 
   last_ble_send_time = mymillis();
   crlf_printed = 0;
 #ifdef RFD
-// @bertroode
-/*
-  if (!BTconnected)
-  {
-    while (!RFduinoBLE.radioActive) {};
-    while (RFduinoBLE.radioActive) {};
-    RFduinoBLE.end();
-    setupBluetoothConnection();
-  }
-*/
-  if ( len > MAXBLELEN ) {
   RFduinoBLE.send((char *)msg, len);
-  RFduinoBLE.send((char *)&msg[MAXBLELEN], len-MAXBLELEN);
-#else RFD
+#else
   SimbleeBLE.send((char *)msg, len);
-  SimbleeBLE.send((char *)&msg[MAXBLELEN], len-MAXBLELEN);
-#endif RFD
-  }
-  else {
-#ifdef RFD
-  RFduinoBLE.send((char *)msg, len);
-#else RFD
-  SimbleeBLE.send((char *)msg, len);
-#endif RFD
-  }
+#endif
   delay(100);
 
   if ( show_ble ) {
@@ -2631,11 +2372,28 @@ void send_data(unsigned char *msg, unsigned char len)
   }
 }
 
+void send_string(String cmd, int dly)
+{
+  last_ble_send_time = mymillis();
+  crlf_printed = 0;
+  //  ble_Serial.print(cmd);
+#ifdef RFD
+  RFduinoBLE.send(cmd.cstr(), strlen(cmd.cstr()));
+#else
+  SimbleeBLE.send(cmd.cstr(), strlen(cmd.cstr()));
+#endif
+  if ( show_ble ) {
+    print_state(" ->(");
+    Serial.print(cmd);
+    Serial.print(F(") - "));
+  }
+  waitDoingServices(dly, 1);
+}
+
 /* ********************************* xbridge2 and serial char handling ********************** */
 
 int init_command_buff(t_command_buff* pCmd)
 {
-  check_stack("#icb#");
   if (!pCmd)
     return 0;
   memset(pCmd->commandBuffer, 0, COMMAND_MAXLEN);
@@ -2649,7 +2407,6 @@ int init_command_buff(t_command_buff* pCmd)
  */
 int doCommand(void)
 {
-  check_stack("#doCmd#");
   // TXID packet?
   if (command_buff.commandBuffer[1] == 0x01 && command_buff.commandBuffer[0] == 0x06)
   {
@@ -2678,18 +2435,18 @@ int doCommand(void)
   }
   if ( toupper(command_buff.commandBuffer[0]) == 'V' ) {
     print_state("V command - show FLASH settings");
-    char v[20];
-    sprintf(v, "v %d %d %x v", p->protocolType, p->runPeriod, p->firmware);
+    String v = "v ";
+    v += String(p->protocolType) + " ";
+    v += String(p->runPeriod) + " ";
+    v += String(p->firmware, HEX) + " v";
     #ifdef DEBUG
       Serial.println("V-command received.");
       Serial.println(v);
     #endif   
     #ifdef RFD
-      RFduinoBLE.send(v, strlen(v));
-//      while ( RFduinoBLE.radioActive);
+      RFduinoBLE.send(v.cstr(), v.length());
     #else
-      SimbleeBLE.send(v, strlen(v));
-//      while ( SimbleeBLE.radioActive);
+      SimbleeBLE.send(v.cstr(), v.length());
     #endif
     displayData();
   }
@@ -2735,8 +2492,6 @@ int controlProtocolService()
   int nRet = 1;
   int i;
   unsigned char b;
-
-  check_stack("#cps#");
 
   //if we have timed out waiting for a command, clear the command buffer and return.
   if (command_buff.nCurReadPos > 0 && (mymillis() - cmd_to) > 2000)
@@ -2826,7 +2581,6 @@ int controlProtocolService()
 int waitDoingServicesInterruptible(unsigned long wait_time, volatile boolean *break_flag, unsigned char bProtocolServices)
 {
   unsigned long start_wait = mymillis();
-  check_stack("#wdsi#");
   while ( (mymillis() - start_wait ) < wait_time ) {
     if ( bProtocolServices )
       controlProtocolService();
@@ -2844,7 +2598,6 @@ int waitDoingServicesInterruptible(unsigned long wait_time, volatile boolean *br
 void waitDoingServices(unsigned long wait_time, unsigned char bProtocolServices)
 {
   unsigned long start_wait = mymillis();
-  check_stack("#wds#");
   while ( (mymillis() - start_wait ) < wait_time )
   {
     if ( bProtocolServices )
@@ -2857,7 +2610,6 @@ void waitDoingServices(unsigned long wait_time, unsigned char bProtocolServices)
 
 void setupInitData()
 {
-  check_stack("#sid#");
   print_state("setupInitData()");
 
   if (p->marker == 'T')
@@ -2894,7 +2646,6 @@ void setupInitData()
 
 void eraseData()
 {
-  check_stack("#ed#");
   print_state("eraseData() - ");
   int rc;
   Serial.print("Attempting to erase flash page ");
@@ -2911,7 +2662,6 @@ void eraseData()
 void writeData()
 {
   int rc;
-  check_stack("#wd#");
 
   print_state("writeData() - ");
 
@@ -2924,15 +2674,14 @@ void writeData()
   else if (rc == 1)
     Serial.print(" -> Error - the flash page is reserved");
   else if (rc == 2)
-    Serial.print(F(" -> Error - the flash page is used by the sketch"));
+    Serial.print(" -> Error - the flash page is used by the sketch");
 }
 
 void displayData()
 {
-  check_stack("#dd#");
-  Serial.print(F("The data stored in flash page "));
+  Serial.print("The data stored in flash page ");
   Serial.print(MY_FLASH_PAGE);
-  Serial.println(F(" contains: "));
+  Serial.println(" contains: ");
   Serial.print("  protocolType = ");
   Serial.println(p->protocolType);
   Serial.print("  runPeriod = ");
@@ -2954,26 +2703,283 @@ unsigned long mymillis(void)
   return(millis()+TIMEOF8HINMS);    // next round value above 8 h buffer depth in ms
 }
 
-void print_state(char *str)				// print timestamp and description of current status/action
-{
-	Serial.print(timeStamp());
-	Serial.print(str);
+/* 
+ * get free mem available
+ */
+extern unsigned int __bss_end;
+extern unsigned int __heap_start;
+extern void *__brkval;
+int freeMemory() {
+  int free_memory;
+
+  if ((int)__brkval == 0)
+    free_memory = ((int)&free_memory) - ((int)&__bss_end);
+  else
+    free_memory = ((int)&free_memory) - ((int)__brkval);
+
+  return free_memory;
 }
 
-char timestring[20];
-
-char *timeStamp()
+/*
+ * print current timestamp
+ */
+char * current_timestamp(char *outbuffer)
 {
-	unsigned long ms = mymillis();
-	unsigned long val;
-	int i;
+  unsigned long ms = mymillis();
 
-  check_stack("#timStmp#");
-
-  timestring[0] = '\0';
-  sprintf(timestring, "\r\n[%03d][%03d][%03d] ", ms / 60000, (ms / 1000) % 60, ms % 1000);
-	return timestring;
+  sprintf(outbuffer, "\r\n[%03d][%03d][%03d] ", ms/60000, (ms/1000)%60, ms%1000);
+  return(outbuffer);
 }
+
+void print_state(String str)
+{
+  char ob[80];
+
+  Serial.printf("%s%s", current_timestamp(ob), str.cstr());
+//  Serial.print(str);
+}
+
+int print_statef(const char *format, ...)
+{
+  va_list vl;
+  char op[256];
+  char *opp;
+
+  memset(op, 0, sizeof(op));      // for 0 termination
+
+  current_timestamp(op);          // set current timestamp
+
+  opp = &op[strlen(op)];
+  va_start(vl, format);
+  
+  while (*format)
+  {
+    if (*format == '%')
+    {
+      format++;
+      char ch = *format;
+      if (! ch)
+        break;
+      else if (ch == '%')
+        *opp++ = *format;
+      else if (ch == 'b') {
+        unsigned u = va_arg(vl, unsigned);
+        utoa(u, opp, 2);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'c') {
+        int ch = va_arg(vl, int);
+        *opp++ = (char)ch;
+      }
+      else if (ch == 'd') {
+        int i = va_arg(vl, int);
+        itoa(i, opp, 10);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'l') {
+        unsigned long i = va_arg(vl, unsigned long);
+        ultoa(i, opp, 10);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'u') {
+        unsigned u = va_arg(vl, unsigned);
+        utoa(u, opp, 10);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'x') {
+        unsigned x = va_arg(vl, unsigned);
+        itoa(x, opp, 16);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 's') {
+        char *s = va_arg(vl, char *);
+        strcat(op, s);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'f') {
+        char format[20];
+        double d = va_arg(vl, double);
+        sprintf(opp, "%d.%02d", (int)d, ((int)(d*100))%100);
+        opp = &op[strlen(op)];
+      }
+    }
+    else
+     *opp++ = *format;
+    format++;
+  }
+  
+  va_end(vl);
+
+  Serial.print(op);
+
+  return 1;
+} 
+
+int myprintf(const char *format, ...)
+{
+  va_list vl;
+  char op[256];
+  char *opp;
+
+  memset(op, 0, sizeof(op));  // for 0 termination
+  opp = &op[0];               // set pointer to array start
+  va_start(vl, format);
+  
+  while (*format) {
+    if (*format == '%') {     // format descriptor found?
+      format++;
+      char ch = *format;
+      if (! ch)
+        break;
+      else if (ch == '%')
+        *opp++ = *format;
+      else if (ch == 'b') {
+        unsigned u = va_arg(vl, unsigned);
+        utoa(u, opp, 2);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'c') {
+        int ch = va_arg(vl, int);
+        *opp++ = (char)ch;
+      }
+      else if (ch == 'd') {
+        int i = va_arg(vl, int);
+        itoa(i, opp, 10);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'l') {
+        unsigned long i = va_arg(vl, unsigned long);
+        ultoa(i, opp, 10);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'u') {
+        unsigned u = va_arg(vl, unsigned);
+        utoa(u, opp, 10);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'x') {
+        unsigned x = va_arg(vl, unsigned);
+        itoa(x, opp, 16);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 's') {
+        char *s = va_arg(vl, char *);
+        strcat(op, s);
+        opp = &op[strlen(op)];
+      }
+      else if (ch == 'f') {
+        char format[20];
+        double d = va_arg(vl, double);
+        sprintf(opp, "%d.%02d", (int)d, ((int)(d*100))%100);
+        opp = &op[strlen(op)];
+      }
+    }
+    else
+     *opp++ = *format;
+    format++;
+  }
+  
+  va_end(vl);
+
+  Serial.print(op);
+
+  return 1;
+} 
+
+int old_print_statef(const char *format, ...)
+{
+  va_list vl;
+  size_t n = 0;
+
+  unsigned long ms = mymillis();
+  unsigned long val;
+  int i;
+
+  Serial.println("");
+  Serial.print("[");
+  Serial.print(ms / 60000);
+  Serial.print("][");
+  if ( (val = ((ms / 1000) % 60)) < 10 )
+    Serial.print("0");
+  Serial.print(val);
+  Serial.print("][");
+  if ( (val = (ms % 1000)) < 10 )
+    Serial.print("00");
+  else if ( val < 100 )
+    Serial.print("0");
+  Serial.print(val);
+  Serial.print("] ");
+  
+  va_start(vl, format);
+  
+  while (*format)
+  {
+    if (*format == '%')
+    {
+      format++;
+
+      char ch = *format;
+      if (! ch)
+        break;
+      else if (ch == '%')
+        n += Serial.print(*format);
+      else if (ch == 'b')
+      {
+        unsigned u = va_arg(vl, unsigned);
+        n += Serial.print(u, BIN);
+      }
+      else if (ch == 'c')
+      {
+        int ch = va_arg(vl, int);
+        n += Serial.print((char)ch);
+      }
+      else if (ch == 'd')
+      {
+        int i = va_arg(vl, int);
+        n += Serial.print(i);
+      }
+      else if (ch == 'u')
+      {
+        unsigned u = va_arg(vl, unsigned);
+        n += Serial.print(u);
+      }
+      else if (ch == 'x')
+      {
+        unsigned x = va_arg(vl, unsigned);
+        n += Serial.print(x, HEX);
+      }
+      else if (ch == 's')
+      {
+        char *s = va_arg(vl, char *);
+        n += Serial.print(s);
+      }
+      else if (ch == 'f')
+      {
+        double d = va_arg(vl, double);
+        long l = d;
+        n += Serial.print(l);
+        n += Serial.print('.');
+        d *= 100;
+        l = d;
+        if (l < 1)
+          l = -l;
+        l %= 100;
+        if(l < 10){
+         n += Serial.print(0);
+        }
+        n += Serial.print(l);
+      }
+    }
+    else
+     n += Serial.print(*format);
+    
+    format++;
+  }
+  
+  va_end(vl);
+  
+  return n;
+} 
 
 /* ************************ end of LBridge code **************** */
 

@@ -63,25 +63,32 @@
  *  - bugfix to enable live sensor change (@bertrooode, @chaosbiber)
  *  - minor bugfixes
  * V0.9.11
- *  - fixed LimiTTer mode (comment USE_XBRIDGE2 out)
+ *  - fixed code errors in LimiTTer mode, no tested before (uncomment #define USE_XBRIDGE2 to activate)
  * V0.9.12
- *  - removed while (!Serial), replaced by a fixed delay
- *  - removed own printf code to avoid stack overflow
- *  - added while (RDduinoBLE.radioActive); after ...BLE.send 
+ *  - removed useless while (!Serial), replaced by a fixed delay, RFduino Serial implementation is interrupt driven, only work on Arduino
+ *  - removed own printf code to avoid stack overflow, serial output only done with Serial.printf() now
+ *  - added while (RDduinoBLE.radioActive); after ...BLE.send / to be tested
  * V0.9.13
- *  - this version number was skipped
+ *  - this version number was intentional skipped
  * V0.9.14
- *  - replaced all String class depend code to char[] type to reduce heavy memory usage of String class
- *  - added stack_check() code / no action / display function call history after remaining memory is too low
+ *  - replaced all String class depend code to char[] type to reduce heavy memory usage of the String class
+ *  - added stack_check() code / no action taken on underflow / displays function call history after remaining memory is too low
+ *  - track and display absolute minimum of available memory
  *  - removed radioActive check before/after BLE.send routines
  *  - reduced BLE packet length to 20 bytes fixed to avoid sending 2 packets / xDrip accepts shorter packets
  *    if the length is coded correctly at start of packet
+ * V0.9.15
+ *  - restart of BLE stack when not connected at end of loop() to heal slowly packet transmission after reconnect (experimental)
+ *  - restart BLE stack if BLE lost during sending the current queue (40 s waiting time)
+ *  - testing function result of BLE.send to check proper BLE stack queue filling (currently RFduino only)
+ *  - added watchdog again to overcome possible RFduino freezing due to BLE stack overload
  */
 
  /*
   * to do:
   * - clear up SHADOWFRAM code, implemented with #defined parts and bool flag
   * - adopt Simblee FLASH handling
+  * - reintegrate a classic watchdog timer to overcome RFduino freezing
   */
 
 /* ********************* program configuration options **********************/
@@ -92,30 +99,33 @@
 #define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTer
                                 // ASCII protocol (one way communication)
 #define USE_SHADOWFRAM          // uncomment to work with a shadow FRAM copy of the Libre sensor FRAM
-#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
+#define SERIALOFF               // switch off Serial interface during ULP for power saving
+//#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages (see also #define SERIALOFF)
 
-/* 
- * debug and other less important options
- * add an "N_" prefix to disbale the option
- */
-//#define DEBUG                 // uncomment to have verbose debug output
-//#define FRAM_DEBUG                 // uncomment to have verbose debug output for FRAM mechanism
+//#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
+
+// debug and other less important options, uncomment to disbale the option
 //#define SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor, disable for active sensors!
 
-//#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages
-#define SERIALOFF               // switch off Serial interface during ULP
+//#define DEBUG                   // uncomment to have verbose debug output
+//#define FRAM_DEBUG              // uncomment to have verbose debug output for FRAM mechanism
+
+//#define BLE_REAL_LEN            // use real length of BLE packets to send or limit to 20 chars?
+//#define SEND_LIMITTER_SA      // send sensor minutes via LimiTTer string
+#define USE_WDT               // use watchdog with 11 min duration
+
+/* ******************** BLE and central seetings ***************************** */
 
 #define UARTDELAY 2000          // delay after switching serial interface on/off
 
-/* ******************** BLE and central seetings ***************************** */
 #define DXQUEUESIZE (9*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
 
 #define LB_NAME   "xbridgeR"    // dont change "xbridge", space for 1 char left to indicate different versions
 #define LB_ADVERT "rfduino"     // dont change "rfduino"
                                 // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".14"  // indicates minor version
-#define LB_DATETIME "180320_2008" // date_time
+#define LB_MINOR_VERSION ".15"  // indicates minor version
+#define LB_DATETIME "180326_0915" // date_time
 #define SPIKE_HEIGHT 40         // minimum delta to be a spike
 
 #ifdef RFD
@@ -125,8 +135,6 @@
 #define MAX_VOLTAGE 3000        // adjust voltage measurement to have a wider rrange
 #define MIN_VOLTAGE 2200        // minimum voltage where BLE will work properly (@FPV-UAV)
 #endif RFD
-
-//#define BLE_REAL_LEN            // use real length of BLE packets to send or limit to 20 chars?
 
 /* ****************************** includes ********************************** */
 
@@ -141,8 +149,6 @@
 #include <Stream.h>
 #include <Memory.h>
 #include <itoa.h>
-
-//#include <itoa.h>             // support functions for sprintf(...)
 
 // by @clvsjr9 to Arduino 1.6.5 compile
 //#include <data_types.h>
@@ -209,7 +215,9 @@ bool use_shadowfram = 1;
 bool use_shadowfram = 0;
 #endif
 
+#ifdef SEND_LIMITTER_SA
 unsigned long last_raw = 0;         // last sended RAW value
+#endif
 int batteryPcnt = 0;                // battery capacity in %
 
 unsigned long loop_cnt = 0;         // count the 5 mins loops
@@ -219,7 +227,7 @@ int ble_answer;                     // state counter, char from BLE reeived?
 unsigned char bleBuf[BLEBUFLEN];
 int bleBufRi = 0;                   // BLE read and write index
 int bleBufWi = 0;
-bool BTconnected = false;
+static boolean BTconnected = false;
 
 unsigned long startMinutesSinceStart = 0;
 unsigned long startMillisSinceStart = 0;
@@ -236,7 +244,6 @@ unsigned long time_loop_started = 0;
 
 bool BatteryOK = false;
 
-byte noOfBuffersToTransmit = 1;     // LimiTTer type string
 char TxBuffer[30];
 
 byte NFCReady = 0;            // 0 - not initialized, 1 - initialized, no data, 2 - initialized, data OK
@@ -339,7 +346,7 @@ SystemInformationDataType systemInformationData;
 SensorDataDataType sensorData;
 
 /*
- * optimisation possible - data are stored in 3 different arrays
+ * to be optimised - data are stored in 3 different arrays
  */
 
 byte sensorDataHeader[24];
@@ -447,6 +454,9 @@ void setup()
 #ifdef SERIALOFF
   Serial.print("-serialOff");
 #endif
+#ifdef USE_WDT
+  Serial.print("-WDT");
+#endif
 
   getSoCData();
   printSoCData();
@@ -473,6 +483,10 @@ void setup()
   initSensor(&sensor);      // initialize the sensor data structure for FRAM shadowing
 #endif
 
+#ifdef USE_WDT
+  configWDT();              // wind up watch dog timer in case of RFduino freezing do a reset
+#endif
+
   setupBluetoothConnection();
 
   // init xbridge queue
@@ -482,7 +496,8 @@ void setup()
   // set timestamps in queue for inital backfilling
   initialFillupBackfillTimestamps();
 #endif
-  print_state("NFCReady = "); Serial.print(NFCReady); Serial.print(", BatOK = "); Serial.print(BatteryOK);
+  print_state(""); 
+  Serial.printf("NFCReady = %d, BatOK = %d", NFCReady, BatteryOK);
 
   check_stack("#setup#");
   memAndStack("setup()");
@@ -512,7 +527,7 @@ unsigned char frind = 0;
 void memAndStack(char *func)
 {
   print_state("");
-  Serial.printf("(%s) - free RAM = %d, minimum memory available: %d", func, freeMemory(), minimumMemory);
+  Serial.printf("(%s) - free RAM = %d, min. RAM avail log: %d", func, freeMemory(), minimumMemory);
   int v;
   Serial.print(", Stack Size = ");
   // stack memory of RFduino begins at 0x20003FFF
@@ -604,6 +619,10 @@ void loop()
   Serial.print("Simblee) ===");
 #endif
 
+#ifdef USE_WDT
+  restartWDT();
+#endif
+
   // show memory for debug
   memAndStack("loop()");
   // display current data from RFduino
@@ -632,14 +651,9 @@ void loop()
 #endif
       dataTransferBLE();
     }
-    else {
-      print_state("no sensor data to transmit");
-    }
+    else {  print_state("no sensor data to transmit");  }
   }
-  else {
-    print_state("low Battery - go sleep");
-  }
-
+  else {  print_state("low Battery - go sleep");  }
   // calculate sleep time ajusted to runPeriod cycle
   unsigned long sleep_time = (60000 * runPeriod) - (mymillis() - time_loop_started)%60000;
 
@@ -650,9 +664,12 @@ void loop()
     Serial.print(" ms) set to 5 min fix");
     sleep_time = 5*60000L;
   }
+
+  restartBtStack(0);
+
   print_state("loop #"); Serial.print(loop_cnt-1); Serial.print(" - end - NFCReady = ");
   Serial.print(NFCReady); Serial.print(", sleep for "); Serial.print(sleep_time/1000); Serial.print(" s");
-  
+
   // @bertroode: wait for serial output in process
   Serial.flush();
   delay(100);
@@ -791,6 +808,7 @@ void show_trend_history(void)
     // 1 min distance
     Serial.printf(" %d (-%d min)", (scale_bg(sensorData.trend[i])+500)/1000, i);
   }
+#if 0
   if ( 0 ) {
     long average;
     Serial.println("");
@@ -803,6 +821,7 @@ void show_trend_history(void)
       Serial.printf("%d avg: %d, ", i, (average+500)/1000);
     }
   }
+#endif 0
   print_state("--->BG history:\r\n");
   // 15 min distance, starts at 18 min from now
   for (int i = 0; i < 32; i++) {
@@ -873,6 +892,25 @@ void initialFillupBackfillTimestamps(void)
   minutesSinceProgramStart = (mymillis() / (60000));
 }
 #endif USE_XBRIDGE2
+
+/* ************************* NFC/SPI handling **************************** */
+
+#ifdef USE_WDT
+void configWDT()
+{
+  print_state("configure watchdog timer");
+  NRF_WDT->CONFIG = (WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos) | (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos); 
+  NRF_WDT->CRV = 32768 * 60 * 11;         // 11 minut
+  NRF_WDT->RREN |= WDT_RREN_RR0_Msk;                      
+  NRF_WDT->TASKS_START = 1; 
+}
+
+void restartWDT()
+{
+//  print_state("restart watchdog timer");
+  NRF_WDT->RR[0] = WDT_RR_RR_Reload;
+}
+#endif
 
 /* ************************* NFC/SPI handling **************************** */
 
@@ -1486,8 +1524,8 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
         #ifdef DEBUG
         // Print to Serial for debugging
         if (RXBuffer[0] == 0x80)  {
-            print_state("readSingleBlock: block #");
-            Serial.printf("%d:", blockNum);
+            print_state("");
+            Serial.printf("readSingleBlock: block #%d:", blockNum);
 #ifdef FRAM_DEBUG
             for (byte i = 3; i < RXBuffer[1] + 3 - 4; i++) {
                 Serial.print(RXBuffer[i], HEX);
@@ -1495,8 +1533,8 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
             }
 #endif
         } else {
-            print_statef("readSingleBlock: block #");
-            Serial.printf("%d not available, response code is: ", blockNum);
+            print_statef("");
+            Serial.printf("readSingleBlock: block #%d not available, response code is: ", blockNum);
             Serial.println(RXBuffer[0], HEX);
         }
 //        Serial.println(" ");
@@ -1757,9 +1795,9 @@ void getSoCData()
   analogSelection(VDD_1_3_PS);
 #ifdef RFD
   uint16_t sensorValue1 = readVDD();
-  print_state(""); Serial.printf("readVDD() = %d, ", sensorValue1);
+//  print_state(""); Serial.printf("readVDD() = %d, ", sensorValue1);
   int sensorValue = analogRead(1);
-  Serial.printf("analogRead(1) = %d, ", sensorValue);
+//  Serial.printf("analogRead(1) = %d, ", sensorValue);
   SoCData.voltage = sensorValue * (360 / 1023.0) * 10;
   SoCData.temperatureC = RFduino_temperature(CELSIUS);
   SoCData.temperatureF = RFduino_temperature(FAHRENHEIT);
@@ -1769,9 +1807,9 @@ void getSoCData()
   SoCData.temperatureC = Simblee_temperature(CELSIUS);
   SoCData.temperatureF = Simblee_temperature(FAHRENHEIT);
 #endif
-  Serial.printf(", TempC = %f", SoCData.temperatureC);
+//  Serial.printf(", TempC = %f", SoCData.temperatureC);
   SoCData.voltagePercent = map(SoCData.voltage, MIN_VOLTAGE, MAX_VOLTAGE, 0, 100);
-  Serial.printf(", Batt = %d", SoCData.voltagePercent);
+//  Serial.printf(", Batt = %d", SoCData.voltagePercent);
   if (SoCData.voltage < MIN_VOLTAGE) 
     BatteryOK = false;
   else 
@@ -1876,8 +1914,8 @@ void displaySensorData()
   if (!sensorData.sensorDataOK) 
     print_state("Sensor data error");
   else {
-    print_state("BG raw reading: ");
-    Serial.printf("%d, therm. temp est.: %f", sensorData.trend[0], sensorData.trendTemperature[0]);
+//    print_state("");
+//    Serial.printf("BG raw reading: %d, therm. temp est.: %f", sensorData.trend[0], sensorData.trendTemperature[0]);
   }
 }
 
@@ -2116,7 +2154,6 @@ void decodeSensorBody()
 
 void decodeSensorFooter()
 {
-//  memAndStack("decodeSensorFooter()");
   check_stack("#dsf#");
 }
 
@@ -2240,7 +2277,7 @@ void setupBluetoothConnection()
 {
   check_stack("#sblec#");
 
-  print_state("setupBluetoothConnection()");
+  print_state("configure and start BLE stack");
 #ifdef RFD
   if (protocolType == 1) RFduinoBLE.deviceName = LB_NAME;
 #ifdef USE_XBRIDGE2
@@ -2284,12 +2321,13 @@ void dataTransferBLE()
 
   if ( !BTconnected ) {
     print_state("");
-    Serial.printf("dataTransferBLE(), wait 40 s for BLE connect (protocolType = %d) ...", protocolType);
+    Serial.printf("dataTransferBLE(), wait 100 s for BLE connect (protocolType = %d) ...", protocolType);
   }
-  for (int i = 0; i < 40; i++) {
+  for (int i = 0; i < 100; i++) {
     if (BTconnected) {
-      if (protocolType == 1)      
+      if (protocolType == 1) {
         sendToXdripViaBLE();
+      }
       else {
         print_state("");
         Serial.printf(" *** wrong protocol type %d", protocolType);
@@ -2303,6 +2341,25 @@ void dataTransferBLE()
   NFCReady = 1;
 }
 
+void restartBtStack(boolean waitForBT)
+{
+  // if we loosed the BLE connection during transfer or whatever reason restart the BLE stack here
+  if (!BTconnected)
+  {
+    print_state("restarting BT stack, stop BLE");
+    // check for endless loop
+    while (!RFduinoBLE.radioActive) {};
+    while (RFduinoBLE.radioActive) {};
+    RFduinoBLE.end();
+    setupBluetoothConnection();
+    // wait for max 40 s for BLE reconnect
+    if ( waitForBT ) {
+      Serial.printf(" - waiting up to 50 s for reconnect");
+      waitDoingServicesInterruptible(50000, &BTconnected, 1);
+    }
+  }
+}
+
 /*
  * send the BG reading to xDrip+
  */
@@ -2311,35 +2368,48 @@ void sendToXdripViaBLE(void)
   check_stack("#stxvble#");
 
 #ifndef USE_XBRIDGE2
-  // LimiTTer styl as ASCII string
-  noOfBuffersToTransmit = 1;
-
   TxBuffer[0] = '\0';
   sprintf(TxBuffer, "%d %d %d %d", \ 
     sensorData:TREND[0] * 100, SoCData.voltage, SoCData.voltagePercent, sensorData.minutesSinceProgramStart/10);
 
-  print_state("sendToXdripViaBLE: ");
-  Serial.printf("%s", TxBuffer);
+  print_state("");
+  Serial.printf("sendToXdripViaBLE: %s", TxBuffer);
 #ifdef RFD
   // send is queued (the ble stack delays send to start of next tx window)
-  while ( !RFduinoBLE.send(TxBuffer, strlen(TxBuffer)) );
-//  while ( RFduinoBLE.radioActive);
+  while ( !RFduinoBLE.send(TxBuffer, strlen(TxBuffer)) ) {
+    // check for endless loop needed!
+    ;
+  }
+  // wait for end of BLE stack time slot (roughly 6 ms)
+  while ( RFduinoBLE.radioActive);
 #else
   SimbleeBLE.send(TxBuffer, strlen(TxBuffer));
-//  while ( SimbleeBLE.radioActive);
+  while ( SimbleeBLE.radioActive);
 #endif
 #else /* USE_XBRIDGE2 */
   boolean resend_pkt = 0;
+  int more_than_one = 0;
+  // if we are connected via BLE, the queue contains BG readings to be send and we have enough time left
   while ((Pkts.read != Pkts.write) && BTconnected && ((mymillis() - pkt_time) < ((DXQUEUESIZE + 1) * 5000) )) {
     got_ack = 0;
+    unsigned long got_ack_time;
 
     // dont send a 0 entry
     if ( Pkts.buffer[Pkts.read].raw ) {
 
+      // waiting time before next packet will be sended
+      if ( more_than_one++ )
+        waitDoingServices(100, 1);
+      got_ack_time = mymillis();
+      print_state("");
+      Serial.printf("try sending [%d BG / -%d min / %d] - ", Pkts.buffer[Pkts.read].raw/1000, (mymillis() - Pkts.buffer[Pkts.read].ms)/60000, Pkts.read);
+//      Serial.printf("[%d/-%d]", Pkts.buffer[Pkts.read].raw/1000, (mymillis() - Pkts.buffer[Pkts.read].ms)/60000);
+
       sendBgViaBLE(&Pkts.buffer[Pkts.read]);
 
+#ifdef SEND_LIMITTER_SA
       last_raw = Pkts.buffer[Pkts.read].raw;
-      
+#endif
       // wait 10 s for ack
       int j;
       for ( j = 0 ; j < 10 ; j++ ) {
@@ -2350,43 +2420,52 @@ void sendToXdripViaBLE(void)
         }
       }
     }
-    // when it was 0 incremnt read counter
+    // when it was 0 increment read counter
     else {
-      print_state("do not send 0, increment read pointer instead, simulate ACK");
+      print_state("do not send a raw value containing 0, increment read pointer instead, simulate ACK");
       got_ack = 1;
     }
 
     if (got_ack) {
-      Serial.printf(" - got ack (read %d, write %d), inc read to ", Pkts.read, Pkts.write);
+      Serial.printf("ACK / %d ms", mymillis()-got_ack_time);
+//      Serial.printf(" (read %d, write %d), inc read to ", Pkts.read, Pkts.write);
       if ( ++Pkts.read >= DXQUEUESIZE )
         Pkts.read = 0;     //increment read position since we got an ack for the last package
-      Serial.print(Pkts.read);
-      Serial.print(" - ");
+//      Serial.printf("%d - ", Pkts.read);
       resend_pkt = 0;
     }
     else {
       if ( !resend_pkt ) {
-        print_state("no ack received, try again");
+        print_state("no ACK received, try again");
         resend_pkt = 1;
+        // restart BT stack in case of BT transfer breaks after some blocks sended
+        restartBtStack(1);
+        // wait additional 5 s for DexCollectionService to sttle
+        if ( BTconnected )
+          delay(5000);
       }
       else {
-        print_state("no ack received, try again next wakeup");
+        print_state("no ACK received, try again next wakeup");
         resend_pkt = 0;
         break;
       }
     }
   } /* while (send all packets available) */
+//  print_state("end of while schleife");
+//  waitDoingServices(100, 1);
 
+#ifdef SEND_LIMITTER_SA
   // transfer the sensor livetime with the last successful tranmitted BG reading
   // currently not supported as an wixel device
-  if ( 0 ) {
-//  if ( ((loop_cnt % 12) == 0) && (last_raw != 0) )
+  if ( ((loop_cnt % 12) == 0) && (last_raw != 0) ) {
+    print_state("send LimiTTer type sensor age ...");
+//    waitDoingServices(100, 1);
     if ( got_ack ) {
       char packet[30];
       // build a LimiTTer string
       packet[0] = '\0';
       batteryPcnt = min(map(SoCData.voltage, MIN_VOLTAGE, MAX_VOLTAGE, 0, 100), 100); // Convert voltage to percentage
-      sprintf(packet, "%s 216 %s %s", last_raw, batteryPcnt, sensorData.minutesSinceStart);
+      sprintf(packet, "%d 216 %d %d", last_raw, batteryPcnt, sensorData.minutesSinceStart);
       print_state("");
       Serial.printf("send sensor lifetime in LimiTTer ASCII format: [%s]", packet);
       send_data((unsigned char*)packet, strlen(packet));
@@ -2394,6 +2473,7 @@ void sendToXdripViaBLE(void)
       last_raw = 0;
     }
   }
+#endif SEND_LIMITTER_SA
 
 #endif /* USE_XBRIDGE2 */
 }
@@ -2530,10 +2610,10 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
   nRawRecord msg;
   unsigned char msgbuf[80];
   check_stack("#sbgvb#");
-
+/*
   print_state("");
-  Serial.printf("sendBGOverBLE(%d), delay %d min", pPkt->raw/1000, (mymillis() - pPkt->ms)/60000);
-
+  Serial.printf("send[%d]@-%dmin", pPkt->raw/1000, (mymillis() - pPkt->ms)/60000);
+*/
   if ( !BTconnected ) {
     print_state("no BT connection, skip");
     return (0);
@@ -2719,6 +2799,9 @@ int doCommand(void)
       Serial.println("R-command received.");
     #endif  
     readAllData();
+#ifdef USE_XBRIDGE2
+    fillupMissingReadings(0);
+#endif
     dataTransferBLE();
   }  
   // we don't respond to unrecognised commands.

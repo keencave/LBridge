@@ -82,6 +82,12 @@
  *  - restart BLE stack if BLE lost during sending the current queue (40 s waiting time)
  *  - testing function result of BLE.send to check proper BLE stack queue filling (currently RFduino only)
  *  - added watchdog again to overcome possible RFduino freezing due to BLE stack overload
+ * V0.9.16
+ *  - skipped
+ * V0.9.17
+ *  - minor changes for correct handling of Simblee (MM)
+ *  - G4 backward compatibility added (Spike, iosxdrip, MM)
+ *  - preparation for detecting new defined poll messages from xDrip+ (MM)
  */
 
  /*

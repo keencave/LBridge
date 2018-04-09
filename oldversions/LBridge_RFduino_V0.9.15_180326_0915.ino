@@ -99,10 +99,10 @@
 #define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTer
                                 // ASCII protocol (one way communication)
 #define USE_SHADOWFRAM          // uncomment to work with a shadow FRAM copy of the Libre sensor FRAM
-//#define SERIALOFF               // switch off Serial interface during ULP for power saving
-#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages (see also #define SERIALOFF)
+#define SERIALOFF               // switch off Serial interface during ULP for power saving
+//#define SHOW_BLESTATECHANGE     // uncomment to have serial BLE connect/disconnect messages (see also #define SERIALOFF)
 
-#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
+//#define SHORTSTARTCYCLE         // uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
 
 // debug and other less important options, uncomment to disbale the option
 //#define SIM_MINUTES_UPCOUNT     // for testing backfilling with dead sensor, disable for active sensors!
@@ -114,7 +114,27 @@
 //#define SEND_LIMITTER_SA      // send sensor minutes via LimiTTer string
 #define USE_WDT               // use watchdog with 11 min duration
 
-#define DEBUG_BLE             // low level debug BLE communication
+/* ******************** BLE and central seetings ***************************** */
+
+#define UARTDELAY 2000          // delay after switching serial interface on/off
+
+#define DXQUEUESIZE (9*12)     // 12 h of queue (remember and send the last x hours when reconnected via BLE)
+
+#define LB_NAME   "xbridgeR"    // dont change "xbridge", space for 1 char left to indicate different versions
+#define LB_ADVERT "rfduino"     // dont change "rfduino"
+                                // length of device name and advertisement <=15!!!
+#define LB_VERSION "V0.9"       // program version
+#define LB_MINOR_VERSION ".15"  // indicates minor version
+#define LB_DATETIME "180326_0915" // date_time
+#define SPIKE_HEIGHT 40         // minimum delta to be a spike
+
+#ifdef RFD
+#define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
+#define MIN_VOLTAGE 2300        // minimum voltage where BLE will work properly (@bertrooode)
+#else RFD
+#define MAX_VOLTAGE 3000        // adjust voltage measurement to have a wider rrange
+#define MIN_VOLTAGE 2200        // minimum voltage where BLE will work properly (@FPV-UAV)
+#endif RFD
 
 /* ****************************** includes ********************************** */
 
@@ -130,144 +150,145 @@
 #include <Memory.h>
 #include <itoa.h>
 
-#define  str(x)   xstr(x) // double level of indirection required to get gcc
-#define  xstr(x)  #x      // to apply the stringizing operator correctly
-
-/* 
- * from: https://learn.adafruit.com/memories-of-an-arduino/measuring-free-memory
- */
-
-#ifdef __arm__
-// should use uinstd.h to define sbrk but Due causes a conflict
-extern "C" char* sbrk(int incr);
-#else  // __ARM__
-extern char *__brkval;
-#endif  // __arm__
-  
-/* ******************** BLE and central settings ***************************** */
-
-#define UARTDELAY 2000          // delay after switching serial interface on/off
-
-#define DXQUEUESIZE (9*12)     // 9 h of queue (remember and send the last x hours when reconnected via BLE)
-
-#define LB_NAME   "xbridgeR"    // dont change "xbridge", space for 1 char left to indicate different versions
-#define LB_ADVERT "rfduino"     // dont change "rfduino"
-                                // length of device name and advertisement <=15!!!
-#define LB_VERSION "V0.9"       // program version
-#define LB_MINOR_VERSION ".17"  // indicates minor version
-#define LB_DATETIME "180409_2054" // date_time
-#define SPIKE_HEIGHT 40         // minimum delta to be a spike
-
-#ifdef RFD
-#define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
-#define MIN_VOLTAGE 2300        // minimum voltage where BLE will work properly (@bertrooode)
-#else RFD
-#define MAX_VOLTAGE 3800        // adjust voltage measurement to have a wider rrange
-#define MIN_VOLTAGE 2600        // minimum voltage where BLE will work properly (@FPV-UAV)
-#endif RFD
+// by @clvsjr9 to Arduino 1.6.5 compile
+//#include <data_types.h>
 
 /* ************************** NFC defines ************************************** */
-
-/* *** hardware SPI pins seetings *** */
 
 #define PIN_SPI_SCK   4
 #define PIN_SPI_MOSI  5
 #define PIN_SPI_MISO  3
 #define PIN_SPI_SS    6
 #define PIN_IRQ       2
-const int SS_PIN = SS;				// Slave Select pin, uses standard wiring from variant.h
-// const int IRQ_PIN = 2;     // IRQ/DIN pin used for wake-up pulse
 
-/* *** NFC section seetings *** */
 #define ALL_BYTES 0x1007
 #define IDN_DATA 0x2001
 #define SYSTEM_INFORMATION_DATA 0x2002
 #define BATTERY_DATA 0x2005
 
 /* CR95HF Commands */
-#define IDN               0x01			// identification number of CR95HF
-#define SELECT_PROTOCOL   0x02			// select protocol
-#define POLL              0x03			// poll
-#define SENDRECEIVE       0x04			// send and receive data (most commonly used)
-#define READ              0x05			// read values from registers internal to CR95HF
-#define WRITE             0x06			// write values to registers internal to CR95HF
+#define IDN               0x01  // identification number of CR95HF
+#define SELECT_PROTOCOL   0x02  // select protocol
+#define POLL              0x03  // poll
+#define SENDRECEIVE       0x04  // send and receive data (most commonly used)
+#define READ              0x05  // read values from registers internal to CR95HF
+#define WRITE             0x06  // write values to registers internal to CR95HF
 #define ECHO              0x55
 
 // send receive commands for ISO/IEC 15693 protocol
-#define INVENTORY					0x01	// receives information about tags in range
-#define STAY_QUIET					0x02	// selected unit will not send back a response
-#define READ_BLOCK					0x20	// read single block of memory from RF tag
-#define WRITE_BLOCK					0x21	// write single block to memory of RF tag
-#define LOCK_BLOCK					0x22	// permanently locks a block of memory on RF tag
-#define READ_BLOCKS					0x23	// reads multiple blocks of memory from RF tag
-#define WRITE_BLOCKS				0x24	// writes multiple blocks of memory to RF tag
-#define SELECT						0x25	// used to select a specific tag for communication via the uid
-#define RESET_TO_READY				0x26	// resets RF tag to ready state
-#define WRITE_AFI					0x27	// writes application family identifier to RF tag
-#define LOCK_AFI					0x28	// permanently locks application family identifier
-#define WRITE_DSFID					0x29	// writes data storage format identifier to RF tag
-#define LOCK_DSFID					0x2A	// permanentlylocks data storage format identifier
-#define GET_SYSTEM_INFORMATION		0x2B	// gets information from RF tag that includes memory
-											// block size in bytes and number of memory blocks
+#define INVENTORY               0x01  // receives information about tags in range
+#define STAY_QUIET              0x02  // selected unit will not send back a response
+#define READ_BLOCK              0x20  // read single block of memory from RF tag
+#define WRITE_BLOCK             0x21  // write single block to memory of RF tag
+#define LOCK_BLOCK              0x22  // permanently locks a block of memory on RF tag
+#define READ_BLOCKS             0x23  // reads multiple blocks of memory from RF tag
+#define WRITE_BLOCKS            0x24  // writes multiple blocks of memory to RF tag
+#define SELECT                  0x25  // used to select a specific tag for communication via the uid
+#define RESET_TO_READY          0x26  // resets RF tag to ready state
+#define WRITE_AFI               0x27  // writes application family identifier to RF tag
+#define LOCK_AFI                0x28  // permanently locks application family identifier
+#define WRITE_DSFID             0x29  // writes data storage format identifier to RF tag
+#define LOCK_DSFID              0x2A  // permanentlylocks data storage format identifier
+#define GET_SYSTEM_INFORMATION  0x2B  // gets information from RF tag that includes memory
+// block size in bytes and number of memory blocks
 #define GET_BLOCKS_SECURITY_STATUS  0x2C
 
-#define BLEBUFLEN 80                // BLE input buffer
-
-// defines the xBridge protocol functional level.  Sent in each packet as the last byte.
-#define DEXBRIDGE_PROTO_LEVEL (0x01)
-
-#define COMMAND_MAXLEN 80   //define the maximum command string length for USB commands.
-
-#define SNLEN 20            // length of decoded sensor number
-#define SSBYTE              // length of sensorStatusByte message
-
-#define MAXSTACK 0x20003FFF       // stack begin at RFduino
-#define STACKWARNLEVEL 300        // maximum stack size (1k on RFduino)
-#define FKTSTACK 20               // entries for calling history
-#define FNMLEN 20
-
-#define FILL8H (8*12)     // fillup 8 h - the length of the 8 hour Libre sensor FRAM history over all
-
-#define NFCTIMEOUT 500
-
-#define NFCDEVICEID 20      // length of NFC device ID (12)
-
-#define MAXBLELEN 20
-
-#define TIMEOF8HINMS ((long)(8L*12L*5L*60L*1000L))
+const int SS_PIN = SS;   // Slave Select pin, uses standard wiring from variant.h (see comment section above)
+//const int IRQ_PIN = 2;  // IRQ/DIN pin used for wake-up pulse
 
 /* ******************************** accessing the FLASH üages ******************** */
 
 #ifdef RFD
 #define MY_FLASH_PAGE  251
 #else
-#define MY_FLASH_PAGE  235  // to enable OTA programming, 230/235/237 usable accorind @FPV-UAV
+#define MY_FLASH_PAGE  237  // to enable OTA programming, 230/235/237 usable accorind @FPV-UAV
 #endif
+
+#define  str(x)   xstr(x) // double level of indirection required to get gcc
+#define  xstr(x)  #x      // to apply the stringizing operator correctly
+
+/* ******************************** program variables ******************************** */
+
+#ifdef USE_SHADOWFRAM               // use shadow FRAM mechanism?
+bool use_shadowfram = 1;
+#else
+bool use_shadowfram = 0;
+#endif
+
+#ifdef SEND_LIMITTER_SA
+unsigned long last_raw = 0;         // last sended RAW value
+#endif
+int batteryPcnt = 0;                // battery capacity in %
+
+unsigned long loop_cnt = 0;         // count the 5 mins loops
+int ble_answer;                     // state counter, char from BLE reeived?
+
+#define BLEBUFLEN 80                // BLE input buffer
+unsigned char bleBuf[BLEBUFLEN];
+int bleBufRi = 0;                   // BLE read and write index
+int bleBufWi = 0;
+static boolean BTconnected = false;
+
+unsigned long startMinutesSinceStart = 0;
+unsigned long startMillisSinceStart = 0;
+unsigned long minutesSinceProgramStart = 0;
+
+uint16_t lastGlucose = 0;
+uint16_t currentGlucose = 0;
+boolean firstRun = 1;               // flag for spike filter operation
+
+byte protocolType = 1;              // 1 - LimiTTer
+byte runPeriod = 1;                 // czas w minutach - 0 = tylko na żądanie
+
+unsigned long time_loop_started = 0;
+
+bool BatteryOK = false;
+
+char TxBuffer[30];
+
+byte NFCReady = 0;            // 0 - not initialized, 1 - initialized, no data, 2 - initialized, data OK
 
 /* ****************************** xbridge2 protocol releated ******************************** */
 
+// defines the xBridge protocol functional level.  Sent in each packet as the last byte.
+#define DEXBRIDGE_PROTO_LEVEL (0x01)
+
+static boolean show_ble = 0;
+static boolean got_ack = 0;               // indicates if we got an ack during the last do_services.
+static unsigned long pkt_time = 0;        // time of last valid received glucose value
+static unsigned long last_ble_send_time;  // beautifying BLE debug output
+static boolean crlf_printed = 0;          // beautifying BLE debug output
+
+//define the maximum command string length for USB commands.
+#define COMMAND_MAXLEN 80
+
 //structure of a USB command
-typedef struct __attribute__((packed))
+typedef struct _command_buff
 {
   unsigned char commandBuffer[COMMAND_MAXLEN];
   unsigned char nCurReadPos;
 } t_command_buff;
 
-typedef struct __attribute__((packed))
+static t_command_buff command_buff;
+
+typedef struct _Dexcom_packet
 {
   unsigned long raw;
   unsigned long ms;
 } Dexcom_packet;
 
-typedef struct __attribute__((packed))
-{
+typedef struct {
   volatile unsigned char read;
   volatile unsigned char write;
   Dexcom_packet buffer[DXQUEUESIZE];
 } Dexcom_fifo;
 
+Dexcom_fifo Pkts;
+
+Dexcom_packet * DexPkt;
+
 // structure of a raw record we will send in a xbridge2 packet
-typedef struct __attribute__((packed))
+typedef struct _nRawRecord
 {
   unsigned char size;                   //size of the packet.
   unsigned char cmd_code;               // code for this data packet.  Always 00 for a Dexcom data packet.
@@ -280,7 +301,12 @@ typedef struct __attribute__((packed))
   unsigned char function;               // Byte representing the xBridge code funcitonality.  01 = this level.
 } nRawRecord;
 
+unsigned long dex_tx_id = 0xA5B1AE;     // TXID for xbridge2 protocol packets = "ABCDE"
+
 /* *************************** NFC related ******************************* */
+
+#define SNLEN 20            // length of decoded sensor number
+#define SSBYTE              // length of sensorStatusByte message
 
 typedef struct  __attribute__((packed))
 {
@@ -315,9 +341,31 @@ typedef struct  __attribute__((packed))
   float historyTemperature[32];
 } SensorDataDataType;
 
+IDNDataType idnData;
+SystemInformationDataType systemInformationData;
+SensorDataDataType sensorData;
+
+/*
+ * to be optimised - data are stored in 3 different arrays
+ */
+
+byte sensorDataHeader[24];
+byte sensorDataBody[296];
+byte sensorDataFooter[24];
+
+byte resultBuffer[40];
+byte RXBuffer[400];           // receive buffer for shadow FRAM data
+byte dataBuffer[400];         // receive buffer for non shadow FRAM processing
+
 /* ************************* shadow FRAM ************************************* */
 
 #ifdef USE_SHADOWFRAM
+/// State of nfc reading
+/// @Contains current and last values needed to track what blocks of date have to be read from the FreeStyle Libre via nfc
+/// Nomenclature:
+///    block ... block of 8 bytes of data of sensor FRAM. The smallest unit of data that can be read from the sensor
+///    data  ... consecutive buffer of 6 bytes in sensor FRAM that comprises the FreeStyle Libre data for on point in time. It contains blood sugar data and temperature data and maybe some more information on sensor state.
+///    index ... index (number of) the data
 typedef struct  __attribute__((packed)) {
     uint8_t uid[8];                  // FreeStyle Libre serial number
     uint8_t oldUid[8];
@@ -330,6 +378,8 @@ typedef struct  __attribute__((packed)) {
     byte fram[344];                  // buffer for Freestyle Libre FRAM data
     byte resultCodes[43];            // result codes from nfc read single block command
 } Sensor;
+
+Sensor sensor;
 #endif
 
 /* **************************** processor internals *************************************** */
@@ -343,6 +393,8 @@ typedef struct  __attribute__((packed))
   double rssi;
 } SoCDataType;
 
+SoCDataType SoCData;            // store processor variables
+
 /* ************************** FLASH variables ******************************************** */
 
 typedef struct dataConfig
@@ -353,144 +405,19 @@ typedef struct dataConfig
   byte firmware;                      // firmware version starting 0x02
 };
 
-uint16_t crc16table[256] =
-{ 0, 4489, 8978, 12955, 17956, 22445, 25910, 29887, 35912, 40385,
-  44890, 48851, 51820, 56293, 59774, 63735, 4225, 264, 13203, 8730,
-  22181, 18220, 30135, 25662, 40137, 36160, 49115, 44626, 56045, 52068,
-  63999, 59510, 8450, 12427, 528, 5017, 26406, 30383, 17460, 21949,
-  44362, 48323, 36440, 40913, 60270, 64231, 51324, 55797, 12675, 8202,
-  4753, 792, 30631, 26158, 21685, 17724, 48587, 44098, 40665, 36688,
-  64495, 60006, 55549, 51572, 16900, 21389, 24854, 28831, 1056, 5545,
-  10034, 14011, 52812, 57285, 60766, 64727, 34920, 39393, 43898, 47859,
-  21125, 17164, 29079, 24606, 5281, 1320, 14259, 9786, 57037, 53060,
-  64991, 60502, 39145, 35168, 48123, 43634, 25350, 29327, 16404, 20893,
-  9506, 13483, 1584, 6073, 61262, 65223, 52316, 56789, 43370, 47331,
-  35448, 39921, 29575, 25102, 20629, 16668, 13731, 9258, 5809, 1848,
-  65487, 60998, 56541, 52564, 47595, 43106, 39673, 35696, 33800, 38273,
-  42778, 46739, 49708, 54181, 57662, 61623, 2112, 6601, 11090, 15067,
-  20068, 24557, 28022, 31999, 38025, 34048, 47003, 42514, 53933, 49956,
-  61887, 57398, 6337, 2376, 15315, 10842, 24293, 20332, 32247, 27774,
-  42250, 46211, 34328, 38801, 58158, 62119, 49212, 53685, 10562, 14539,
-  2640, 7129, 28518, 32495, 19572, 24061, 46475, 41986, 38553, 34576,
-  62383, 57894, 53437, 49460, 14787, 10314, 6865, 2904, 32743, 28270,
-  23797, 19836, 50700, 55173, 58654, 62615, 32808, 37281, 41786, 45747,
-  19012, 23501, 26966, 30943, 3168, 7657, 12146, 16123, 54925, 50948,
-  62879, 58390, 37033, 33056, 46011, 41522, 23237, 19276, 31191, 26718,
-  7393, 3432, 16371, 11898, 59150, 63111, 50204, 54677, 41258, 45219,
-  33336, 37809, 27462, 31439, 18516, 23005, 11618, 15595, 3696, 8185,
-  63375, 58886, 54429, 50452, 45483, 40994, 37561, 33584, 31687, 27214,
-  22741, 18780, 15843, 11370, 7921, 3960
-};
-
-/* ******************************** program variables ******************************** */
-
-char timestring[20];                // output buffer len for print_state() command
-
-#ifdef USE_SHADOWFRAM               // use shadow FRAM mechanism?
-bool use_shadowfram = 1;
-#else
-bool use_shadowfram = 0;
-#endif
-
-#ifdef SEND_LIMITTER_SA
-unsigned long last_raw = 0;         // last sended RAW value
-#endif
-
-int batteryPcnt = 0;                // battery capacity in %
-unsigned long loop_cnt = 0;         // count the 5 mins loops
-int ble_answer;                     // state counter, char from BLE reeived?
-
-unsigned char bleBuf[BLEBUFLEN];
-int bleBufRi = 0;                   // BLE read and write index
-int bleBufWi = 0;
-static boolean BTconnected = false;
-
-unsigned long startMinutesSinceStart = 0;
-unsigned long startMillisSinceStart = 0;
-unsigned long minutesSinceProgramStart = 0;
-
-uint16_t lastGlucose = 0;
-uint16_t currentGlucose = 0;
-boolean firstRun = 1;               // flag for spike filter operation
-
-byte protocolType = 1;              // 1 - LimiTTer
-byte runPeriod = 1;                 // czas w minutach - 0 = tylko na żądanie
-
-unsigned long time_loop_started = 0;
-
-bool BatteryOK = false;
-
-char TxBuffer[30];
-
-byte NFCReady = 0;            // 0 - not initialized, 1 - initialized, no data, 2 - initialized, data OK
-
-static boolean show_ble;                  // show BLE debug output on char level?
-
-static boolean got_ack = 0;               // indicates if we got an ack during the last do_services.
-static unsigned long pkt_time = 0;        // time of last valid received glucose value
-static unsigned long last_ble_send_time;  // beautifying BLE debug output
-static boolean crlf_printed = 0;          // beautifying BLE debug output
-
-struct dataConfig valueSetup;             // flash data structure
+struct dataConfig valueSetup;   
 dataConfig *p;
-
-static t_command_buff command_buff;
-static Dexcom_fifo Pkts;
-static Dexcom_packet * DexPkt;
-
-//unsigned long dex_tx_id = 0;     // TXID for xbridge2 protocol packets = "ABCDE"
-unsigned long dex_tx_id = 0xA5B1AE;     // TXID for xbridge2 protocol packets = "ABCDE"
-
-static IDNDataType idnData;
-static SystemInformationDataType systemInformationData;
-static SensorDataDataType sensorData;
-
-static char decodedSensorSN[15];
-
-/*
- * to be optimised - data are stored in 3 different arrays
- */
-
-static byte sensorDataHeader[24];
-static byte sensorDataBody[296];
-static byte sensorDataFooter[24];
-
-static byte resultBuffer[40];
-static byte RXBuffer[400];           // receive buffer for shadow FRAM data
-static byte dataBuffer[400];         // receive buffer for non shadow FRAM processing
-
-#ifdef USE_SHADOWFRAM
-static Sensor sensor;
-#endif
-
-static SoCDataType SoCData;            // store processor variables
-
-static boolean sreached = 0;
-
-int minimumMemory = 8192;             // maxmimum memory size available for RFduino/Simblee user space
-
-char fktstack[FKTSTACK][FNMLEN];      // stuff for stack_check
-unsigned int fktFree[FKTSTACK];
-unsigned char fwind = 0;
-unsigned char frind = 0;
-
-static bool currentBG = false;
 
 /* ************************* program section **************************** */
 
 void setup()
 {
-#ifdef DEBUG_BLE
-  show_ble = 1;
-#else
-  show_ble = 0;
-#endif DEBUG_BLE
-
   // set FALSH page adress where programm settings are stored
   p = (dataConfig*)ADDRESS_OF_PAGE(MY_FLASH_PAGE);
-
-  Serial.begin(9600);       // init and open serial line
-  delay(UARTDELAY);         // time to settle, avoid serial ghost characters
+  // init and open serial line
+  Serial.begin(9600);
+  // time to settle, avoid serial ghost characters
+  delay(UARTDELAY); 
 
   Serial.printf("\r\n============================================================================");
 
@@ -499,37 +426,36 @@ void setup()
 #else
   print_state("LBridge starting (Simblee)");
 #endif RFD
-  Serial.printf("\r\n\tBLE name: %s, %s%s from %s", LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
+  Serial.print("\r\n\tBLE name: "); Serial.print(LB_NAME); 
+  Serial.print(", "); Serial.print(LB_VERSION); Serial.print(LB_MINOR_VERSION);
+  Serial.print(" from "); Serial.print(LB_DATETIME);
   Serial.printf("\r\n\tRAM used: %d, Flash used: %d", ramUsed(), flashUsed());
-  Serial.printf("\r\n\tQueue size: %d (%d h)", DXQUEUESIZE, DXQUEUESIZE/12);
-  Serial.printf("\r\n\tOptions:");
-
-  // delay to avoid ghost characters (15->16)
-  delay(100);
-
+  Serial.print("\r\n\tQueue size: "); Serial.print(DXQUEUESIZE);
+  Serial.print(" ("); Serial.print(DXQUEUESIZE/12); Serial.print(" h)");
+  Serial.print("\r\n\tOptions:");
 #ifdef SIM_MINUTES_UPCOUNT
-  Serial.printf("%s", "-simSensorMin");
+  Serial.print("-simSensorMin");
 #endif
 #ifdef USE_DEAD_SENSOR
-  Serial.printf("-useDeadSensor");
+  Serial.print("-useDeadSensor");
 #endif
 #ifdef USE_SPIKE_FILTER
   Serial.printf("-spikeFilter%d", SPIKE_HEIGHT);
 #endif
 #ifdef USE_XBRIDGE2
-  Serial.printf("-xbridge2");
+  Serial.print("-xbridge2");
 #endif
 #ifdef USE_SHADOWFRAM
-  Serial.printf("-shadowFRAM");
+  Serial.print("-shadowFRAM");
 #endif
 #ifdef SHORTSTARTCYCLE
-  Serial.printf("-10cycles1min");
+  Serial.print("-10cycles1min");
 #endif
 #ifdef SERIALOFF
-  Serial.printf("-serialOff");
+  Serial.print("-serialOff");
 #endif
 #ifdef USE_WDT
-  Serial.printf("-WDT");
+  Serial.print("-WDT");
 #endif
 
   getSoCData();
@@ -547,27 +473,28 @@ void setup()
 
   loop_cnt = 0;
 
-  nfcInit();                            // init NFC chip
-
+  nfcInit();
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x01);
   digitalWrite(PIN_SPI_SS, HIGH);
   delay(1);
 
 #ifdef USE_SHADOWFRAM
-  initSensor(&sensor);                  // initialize the sensor data structure for FRAM shadowing
+  initSensor(&sensor);      // initialize the sensor data structure for FRAM shadowing
 #endif
 
 #ifdef USE_WDT
-  configWDT();                          // wind up watch dog timer in case of RFduino freezing do a reset
+  configWDT();              // wind up watch dog timer in case of RFduino freezing do a reset
 #endif
 
-  setupBluetoothConnection();           // init and start BLE stack
+  setupBluetoothConnection();
 
-  Pkts.read = 0;                        // init xbridge queue
+  // init xbridge queue
+  Pkts.read = 0;
   Pkts.write = 0;
 #ifdef USE_XBRIDGE2
-  initialFillupBackfillTimestamps();    // set timestamps in queue for inital backfilling
+  // set timestamps in queue for inital backfilling
+  initialFillupBackfillTimestamps();
 #endif
   print_state(""); 
   Serial.printf("NFCReady = %d, BatOK = %d", NFCReady, BatteryOK);
@@ -583,15 +510,28 @@ void setup()
 // topic: Stack address > 2k for ATMEGA328p?
 // https://learn.adafruit.com/memories-of-an-arduino/measuring-free-memory
 
+#define MAXSTACK 0x20003FFF       // stack begin at RFduino
+#define STACKWARNLEVEL 300        // maximum stack size (1k on RFduino)
+#define FKTSTACK 20               // entries for calling history
+#define FNMLEN 20
+
+boolean sreached = 0;
+
+int minimumMemory = 8192;
+
+char fktstack[FKTSTACK][FNMLEN];
+unsigned int fktFree[FKTSTACK];
+unsigned char fwind = 0;
+unsigned char frind = 0;
+
 void memAndStack(char *func)
 {
   print_state("");
-  // to avoid unwantd ghost characters (15->16)
-  delay(20);
-  Serial.printf("(%s)", func);
-  Serial.printf(" - free RAM = %d, min. RAM avail log: %d", freeMemory(), minimumMemory);
+  Serial.printf("(%s) - free RAM = %d, min. RAM avail log: %d", func, freeMemory(), minimumMemory);
   int v;
-  Serial.printf(", Stack Size = %d", (MAXSTACK-(int)&v));
+  Serial.print(", Stack Size = ");
+  // stack memory of RFduino begins at 0x20003FFF
+  Serial.print((MAXSTACK-(int)&v));
 }
 
 /*
@@ -640,6 +580,17 @@ void check_stack(char *fkt)
   }
 }
 
+/* 
+ * from: https://learn.adafruit.com/memories-of-an-arduino/measuring-free-memory
+ */
+
+#ifdef __arm__
+// should use uinstd.h to define sbrk but Due causes a conflict
+extern "C" char* sbrk(int incr);
+#else  // __ARM__
+extern char *__brkval;
+#endif  // __arm__
+  
 int freeMemory() {
   char top;
 #ifdef __arm__
@@ -659,9 +610,9 @@ void loop()
 
   check_stack("#loop#");
 
-  Serial.printf("\r\n%s loop #%u--RSSI:%f--%umV/%d%%--SocTemp:%fC--(%s,%s%s/%s,%dRAM,", \
+  Serial.printf("\r\n%s loop #%u--RSSI:%f--%umV/%d%%--SocTemp:%fC--(%s,%s%s/%s,", \
     BTconnected ? "=== BLE" : "=== ...", loop_cnt, SoCData.rssi, SoCData.voltage, SoCData.voltagePercent, SoCData.temperatureC, \
-    LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME, minimumMemory);
+    LB_NAME, LB_VERSION, LB_MINOR_VERSION, LB_DATETIME);
 #ifdef RFD
   Serial.print("RFduino) ===");
 #else
@@ -672,10 +623,13 @@ void loop()
   restartWDT();
 #endif
 
-//  memAndStack("loop()");        // show memory for debug
-  getSoCData();                   // display current data from RFduino
+  // show memory for debug
+  memAndStack("loop()");
+  // display current data from RFduino
+  getSoCData();
+//  printSoCData();
 
-  loop_cnt++;                     // count processed loops
+  loop_cnt++;
 
 #ifdef SHORTSTARTCYCLE
   // @FPV-UAV: system start with faster cycles, switch back after 10 rounds
@@ -692,7 +646,6 @@ void loop()
   if ( BatteryOK ) {
     readAllData();
     if (NFCReady == 2) {
-        currentBG = true;         // MM add for back-compatibility
 #ifdef USE_XBRIDGE2
       fillupMissingReadings(0);
 #endif
@@ -914,6 +867,8 @@ void initSensor(Sensor *sensor){
  * Libre sensor FRAM
  */
 
+#define FILL8H (8*12)     // fillup 8 h - the length of the 8 hour Libre sensor FRAM history over all
+
 #ifdef USE_XBRIDGE2
 void initialFillupBackfillTimestamps(void)
 {
@@ -986,6 +941,7 @@ void send_NFC_PollReceive(byte *command, int commandLength)
   receive_NFC_Response();
 }
 
+#define NFCTIMEOUT 500
 void new_send_NFC_PollReceive(byte *command, int commandLength)
 {
 //  print_state("send_NFC_PollReceive() - ");
@@ -1179,6 +1135,8 @@ IDNDataType idnDataFromIDNResponse()
   idnData.romCRC[1] = resultBuffer[14 + 2];
   return idnData;
 }
+
+#define NFCDEVICEID 20      // length of NFC device ID (12)
 
 void printIDNData(IDNDataType idnData)
 {
@@ -1575,7 +1533,7 @@ byte readSingleBlock(byte blockNum, int maxTrials, byte *RXBuffer, byte *fram, i
             }
 #endif
         } else {
-            print_state("");
+            print_statef("");
             Serial.printf("readSingleBlock: block #%d not available, response code is: ", blockNum);
             Serial.println(RXBuffer[0], HEX);
         }
@@ -1984,6 +1942,8 @@ float decode_temperature(byte *buf)
  * decode the sensors serial number (according to @UPetersen's reference)
  */
 
+static char decodedSensorSN[15];
+
 char *decodeSN(byte *data)
 {
   byte uuid[8];
@@ -2215,6 +2175,34 @@ void decodeSensor()
 
 /* ************************** CRC check ************************************ */
 
+uint16_t crc16table[256] =
+{ 0, 4489, 8978, 12955, 17956, 22445, 25910, 29887, 35912, 40385,
+  44890, 48851, 51820, 56293, 59774, 63735, 4225, 264, 13203, 8730,
+  22181, 18220, 30135, 25662, 40137, 36160, 49115, 44626, 56045, 52068,
+  63999, 59510, 8450, 12427, 528, 5017, 26406, 30383, 17460, 21949,
+  44362, 48323, 36440, 40913, 60270, 64231, 51324, 55797, 12675, 8202,
+  4753, 792, 30631, 26158, 21685, 17724, 48587, 44098, 40665, 36688,
+  64495, 60006, 55549, 51572, 16900, 21389, 24854, 28831, 1056, 5545,
+  10034, 14011, 52812, 57285, 60766, 64727, 34920, 39393, 43898, 47859,
+  21125, 17164, 29079, 24606, 5281, 1320, 14259, 9786, 57037, 53060,
+  64991, 60502, 39145, 35168, 48123, 43634, 25350, 29327, 16404, 20893,
+  9506, 13483, 1584, 6073, 61262, 65223, 52316, 56789, 43370, 47331,
+  35448, 39921, 29575, 25102, 20629, 16668, 13731, 9258, 5809, 1848,
+  65487, 60998, 56541, 52564, 47595, 43106, 39673, 35696, 33800, 38273,
+  42778, 46739, 49708, 54181, 57662, 61623, 2112, 6601, 11090, 15067,
+  20068, 24557, 28022, 31999, 38025, 34048, 47003, 42514, 53933, 49956,
+  61887, 57398, 6337, 2376, 15315, 10842, 24293, 20332, 32247, 27774,
+  42250, 46211, 34328, 38801, 58158, 62119, 49212, 53685, 10562, 14539,
+  2640, 7129, 28518, 32495, 19572, 24061, 46475, 41986, 38553, 34576,
+  62383, 57894, 53437, 49460, 14787, 10314, 6865, 2904, 32743, 28270,
+  23797, 19836, 50700, 55173, 58654, 62615, 32808, 37281, 41786, 45747,
+  19012, 23501, 26966, 30943, 3168, 7657, 12146, 16123, 54925, 50948,
+  62879, 58390, 37033, 33056, 46011, 41522, 23237, 19276, 31191, 26718,
+  7393, 3432, 16371, 11898, 59150, 63111, 50204, 54677, 41258, 45219,
+  33336, 37809, 27462, 31439, 18516, 23005, 11618, 15595, 3696, 8185,
+  63375, 58886, 54429, 50452, 45483, 40994, 37561, 33584, 31687, 27214,
+  22741, 18780, 15843, 11370, 7921, 3960
+};
 
 uint16_t computeCRC16(void *bytes, byte type)
 {
@@ -2360,20 +2348,14 @@ void restartBtStack(boolean waitForBT)
   {
     print_state("restarting BT stack, stop BLE");
     // check for endless loop
-#ifdef RFD    
-		while (!RFduinoBLE.radioActive) {};
-		while (RFduinoBLE.radioActive) {};
-		RFduinoBLE.end();
-#else /* RFD */
-		while (!SimbleeBLE.radioActive) {};
-		while (SimbleeBLE.radioActive) {};
-		SimbleeBLE.end();
-#endif /* RFD */
+    while (!RFduinoBLE.radioActive) {};
+    while (RFduinoBLE.radioActive) {};
+    RFduinoBLE.end();
     setupBluetoothConnection();
     // wait for max 40 s for BLE reconnect
     if ( waitForBT ) {
-      Serial.printf(" - waiting up to 100 s for reconnect");
-      waitDoingServicesInterruptible(100000, &BTconnected, 1);
+      Serial.printf(" - waiting up to 50 s for reconnect");
+      waitDoingServicesInterruptible(50000, &BTconnected, 1);
     }
   }
 }
@@ -2545,8 +2527,6 @@ void RFduinoBLE_onReceive(char *data, int len)
 
   for ( i = 0 ; i < len ; i++ )
     bleBufWrite(data[i]);
-  // MM
-  waitDoingServices(200, 1);      // process any commands sent via BLE
 }
 
 void RFduinoBLE_onDisconnect()
@@ -2588,8 +2568,6 @@ void SimbleeBLE_onReceive(char *data, int len)
   check_stack("#orc#");
   for ( i = 0 ; i < len ; i++ )
     bleBufWrite(data[i]);
-  // MM
-  waitDoingServices(200, 1);      // process any commands sent via BLE
 }
 
 void SimbleeBLE_onDisconnect()
@@ -2656,44 +2634,7 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
     pPkt->raw += loop_cnt % 2;
 #endif USE_DEAD_SENSOR
   msg.filtered = pPkt->raw;
-
-//  msg.dex_battery = 214;  // simulate good dexcom transmitter battery
-  switch ( batteryPcnt ) {
-    case 100: 
-      msg.dex_battery = 214;
-      break;
-    case 90: 
-      msg.dex_battery = 213;
-      break;
-    case 80: 
-      msg.dex_battery = 212;
-      break;
-    case 70: 
-      msg.dex_battery = 211;
-      break;
-    case 60: 
-      msg.dex_battery = 210;
-      break;
-    case 50: 
-      msg.dex_battery = 209;
-      break;
-    case 40: 
-      msg.dex_battery = 208;
-      break;
-    case 30: 
-      msg.dex_battery = 207;
-      break;
-    case 20: 
-      msg.dex_battery = 206;
-      break;
-    case 10: 
-      msg.dex_battery = 205;
-      break;
-    default:      
-      msg.dex_battery = 204;
-      break;
-  }
-
+  msg.dex_battery = 214;  // simulate good dexcom transmitter battery
   msg.my_battery = SoCData.voltagePercent;
   msg.dex_src_id = dex_tx_id;
   msg.delay = mymillis() - pPkt->ms;
@@ -2717,22 +2658,6 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
   send_data((unsigned char *)&msgbuf, 20);
 #endif
 
-  // MM: send current BG one time each loop without backfilling
-  unsigned char msgbuf1[21];
-  if (currentBG)
-  {
-  *(unsigned char *)&msgbuf1[0] = 17;
-  *(unsigned char *)&msgbuf1[1] = msg.cmd_code;
-  *(unsigned long *)&msgbuf1[2] = scale_bg(sensorData.trend[0]);
-  *(unsigned long *)&msgbuf1[6] = scale_bg(sensorData.trend[0]);
-  *(unsigned char *)&msgbuf1[10] = msg.dex_battery;
-  *(unsigned char *)&msgbuf1[11] = msg.my_battery;
-  *(unsigned long *)&msgbuf1[12] = msg.dex_src_id;
-  *(unsigned char *)&msgbuf1[16] = msg.function; 
-  send_data((unsigned char *)&msgbuf1, 17);  // send the message via BLE
-  currentBG = false;
-  }
-
   return (1);
 }
 
@@ -2740,16 +2665,16 @@ int sendBgViaBLE(Dexcom_packet* pPkt)
  * send a raw data packet via BLE
  */
 
+#define MAXBLELEN 20
+
 void send_data(unsigned char *msg, unsigned char len)
 {
   unsigned char i = 0;
   check_stack("#sd#");
 
-//  last_ble_send_time = mymillis();
-  // MM
-  if (!currentBG) last_ble_send_time = mymillis();
-
+  last_ble_send_time = mymillis();
   crlf_printed = 0;
+#ifdef RFD
 // @bertroode
 /*
   if (!BTconnected)
@@ -2761,7 +2686,6 @@ void send_data(unsigned char *msg, unsigned char len)
   }
 */
   if ( len > MAXBLELEN ) {
-#ifdef RFD
   RFduinoBLE.send((char *)msg, len);
   RFduinoBLE.send((char *)&msg[MAXBLELEN], len-MAXBLELEN);
 #else RFD
@@ -2776,7 +2700,7 @@ void send_data(unsigned char *msg, unsigned char len)
   SimbleeBLE.send((char *)msg, len);
 #endif RFD
   }
-  delay(100);             // give phone time to process the packet
+  delay(100);
 
   if ( show_ble ) {
     print_state("sending: <");
@@ -2809,76 +2733,16 @@ int doCommand(void)
   // TXID packet?
   if (command_buff.commandBuffer[1] == 0x01 && command_buff.commandBuffer[0] == 0x06)
   {
-    #ifdef DEBUG_X
-      print_state("");
-      Serial.printf(">>>>>>>>>>>>>>> TXID packet received.");
-    #endif 
     memcpy(&dex_tx_id, &command_buff.commandBuffer[2], sizeof(dex_tx_id));
     // send back the TXID we think we got in response
     return (0);
   }
   // ACK packet?
   if (command_buff.commandBuffer[0] == 0x02 && command_buff.commandBuffer[1] == 0xF0 && !got_ack) {
-    #ifdef DEBUG_X
-      print_state("");
-      Serial.printf(">>>>>>>>>>>>>>> ACK packet received.");
-    #endif 
     got_ack = 1;
     init_command_buff(&command_buff);
     return (0);
   }
-
-  // MM
-  if (command_buff.commandBuffer[0] == 0x0C && command_buff.commandBuffer[1] == 0x02 
-      && command_buff.commandBuffer[2] == 0x0) // request data packets - polling method
-  {
-    switch (command_buff.commandBuffer[3]) 
-    {
-      case 0x00:                        // current data packet
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  Current data packet request received.");
-        #endif
-        break;
-      case 0x01:                        // status packet
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  Status packet request received.");
-        #endif
-        break;
-      case 0x02:                        // last 15 minutes readings part1
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  last 15 minutes readings part1 data packet request received.");
-        #endif
-        break;
-      case 0x03:                        // last 15 minutes readings part2
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  last 15 minutes readings part2 data packet request received.");
-        #endif
-        break;
-      case 0x04:                        // last 8 hours readings part1
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  last 8 hours readings part1 data packet request received.");
-        #endif
-        break;
-      case 0x05:                        // last 8 hours readings part2
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  last 8 hours readings part2 data packet request received.");
-        #endif
-        break;
-      case 0x06:                        // last 8 hours readings part3
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  last 8 hours readings part3 data packet request received.");
-        #endif
-        break;
-      case 0x07:                        // last 8 hours readings part4
-        #ifdef DEBUG_X
-          print_state(">>>>>>>>>>>>>>>  last 8 hours readings part4 data packet request received.");
-        #endif
-        break;
-    }
-    return (0);
-  }
-
-
   if ( toupper(command_buff.commandBuffer[0]) == 'B' ) {
     if ( show_ble ) {
       print_state("B command - dont show BLE communication");
@@ -2930,16 +2794,16 @@ int doCommand(void)
     runPeriod = p->runPeriod;
   }
   if ( toupper(command_buff.commandBuffer[0]) == 'R' ) {
-    #ifdef DEBUG_X
-      print_state("");
-      Serial.printf(">>>>>>>>>>>>>>>  R-command received.");
+    print_state("R command - dop an extra read");
+    #ifdef DEBUG
+      Serial.println("R-command received.");
     #endif  
     readAllData();
 #ifdef USE_XBRIDGE2
     fillupMissingReadings(0);
 #endif
     dataTransferBLE();
-  }
+  }  
   // we don't respond to unrecognised commands.
   return (1);
 }
@@ -3166,6 +3030,8 @@ void displayData()
  * program runtime starts virtual 8 h in the past for backfilling
  */
 
+#define TIMEOF8HINMS ((long)(8L*12L*5L*60L*1000L))
+
 unsigned long mymillis(void)
 {
   return(millis()+TIMEOF8HINMS);    // next round value above 8 h buffer depth in ms
@@ -3176,6 +3042,8 @@ void print_state(char *str)				// print timestamp and description of current sta
 	Serial.print(timeStamp());
 	Serial.print(str);
 }
+
+char timestring[20];
 
 char *timeStamp()
 {

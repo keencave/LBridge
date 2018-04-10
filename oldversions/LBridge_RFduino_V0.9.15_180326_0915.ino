@@ -306,7 +306,7 @@ unsigned long dex_tx_id = 0xA5B1AE;     // TXID for xbridge2 protocol packets = 
 /* *************************** NFC related ******************************* */
 
 #define SNLEN 20            // length of decoded sensor number
-#define SSBYTE              // length of sensorStatusByte message
+#define SSBYTE 20           // length of sensorStatusByte message
 
 typedef struct  __attribute__((packed))
 {

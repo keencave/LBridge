@@ -225,7 +225,7 @@ const int SS_PIN = SS;				// Slave Select pin, uses standard wiring from variant
 #define COMMAND_MAXLEN 80   //define the maximum command string length for USB commands.
 
 #define SNLEN 20            // length of decoded sensor number
-#define SSBYTE              // length of sensorStatusByte message
+#define SSBYTE 20           // length of sensorStatusByte message
 
 #define MAXSTACK 0x20003FFF       // stack begin at RFduino
 #define STACKWARNLEVEL 300        // maximum stack size (1k on RFduino)

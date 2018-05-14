@@ -30,7 +30,7 @@ LBridge_RFduino_V0.9.19_180426_1554:
   - switch off serial interface due ULP sleep phase for better power consumption, @Chaosbiber
   - code aligned to Mareks xbridgeM code spin off for his T-Mini project
   - better BLE performance, applied some work arounds
-  - improved lifetime (up to 5 days with 160 mAh battery)
+  - improved lifetime (up to 5 days with 240 mAh battery)
 
 Original LimiTTer Arduino Pro Mini platform (no modifications needed)
 

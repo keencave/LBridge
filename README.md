@@ -1,13 +1,15 @@
 # LBridge
 LBridge - Read the Freestyle Libre sensor and send the BG readings to xDrip+ using the xBridge2 protocol
 
-This project is is a modification/extension of the LimiTTer projekt from JoernL. The code is running on the LimiTTer hardware platform which is described in the LimiTTer project. It replaces the LimiTTer code and provide the same functionalities.
+This project is is a modification/extension of the LimiTTer projekt from @JoernL. The code is running on the LimiTTer hardware platform which is described in the LimiTTer project. It replaces the LimiTTer code and provide the same functionalities.
 
 LBridge uses the xBridge2 protocol from the Wixel project / implementation of savek-cc. It improves the original LimiTTer in terms of
 
   - optimized battery usage
   - no missed BG readings
   - better BLE performance
+
+If you have questions please join the gitter channel: https://gitter.im/JoernL/LimiTTer
 
 LBridge is working with the great App xDrip+. You can find it here:
 

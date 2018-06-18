@@ -970,7 +970,7 @@ float Read_Memory(boolean *readDone)
 }
 
 float Glucose_Reading(unsigned int val) {
-  int bitmask = 0x0FFF;
+  int bitmask = 0x1FFF;		/* use 13 bit to avoid overflow errors */
   return ((val & bitmask) / 8.5);
 }
 

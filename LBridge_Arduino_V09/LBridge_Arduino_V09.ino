@@ -47,7 +47,7 @@
 /* *** config #DEFINES **************************** */
 /* ************************************************ */
 
-#define N_RELEASE_VERSION
+#define RELEASE_VERSION
 
 #define LB_DATETIME "180618_0715"
 #define LB_VERSION "V0.9"        // version number

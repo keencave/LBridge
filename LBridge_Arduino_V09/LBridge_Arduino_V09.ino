@@ -39,6 +39,8 @@
 	- slightly modified debug oputput
   V09.01:
   - new version number / minor version number
+  V0.9.02:
+  - use 13 bit mask for raw values to avoid overflow errors
 */
 
 /* ************************************************ */
@@ -47,9 +49,9 @@
 
 #define N_RELEASE_VERSION
 
-#define LB_DATETIME "180207_2208"
+#define LB_DATETIME "180618_0715"
 #define LB_VERSION "V0.9"        // version number
-#define LB_MINOR_VERSION ".01"  // indicates minor version
+#define LB_MINOR_VERSION ".02"  // indicates minor version
 
 #ifdef RELEASE_VERSION
 

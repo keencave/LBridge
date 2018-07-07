@@ -98,6 +98,8 @@
  * V0.9.19
  *  - switch OFF BLE stack when battery level is below minimum, otherwise BLE adv. will be seen even when battery is empty
  *  - code cleaning, resorted functions to adopt the code to Mareks xbridgeM project/file structure
+ `V0.9.20
+ *  - added debug code for debugging Mareks T-Mini PCB
  */
 
  /*
@@ -167,8 +169,8 @@ extern char *__brkval;
 #define LB_ADVERT "rfduino"       // dont change "rfduino"
                                   // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"         // program version
-#define LB_MINOR_VERSION ".19"    // indicates minor version
-#define LB_DATETIME "180426_1554" // date_time
+#define LB_MINOR_VERSION ".20"    // indicates minor version
+#define LB_DATETIME "180707_1504" // date_time
 #define SPIKE_HEIGHT 40           // minimum delta to be a spike
 
 #ifdef RFD
@@ -439,6 +441,7 @@ char TxBuffer[TXBUFLEN];            // BLE send buffer
 static byte NFCReady = 0;           // 0 - not initialized, 1 - initialized, no data, 2 - initialized, data OK
 
 static boolean show_ble;            // show BLE debug output on char level?
+static boolean show_nfc;            // show NFC states for debugging
 static boolean got_ack = 0;         // indicates if we got an ack during the last do_services.
 static unsigned long pkt_time = 0;  // time of last valid received glucose value
 static unsigned long last_ble_send_time;// beautifying BLE debug output
@@ -498,6 +501,8 @@ void setup()
 #else
   show_ble = 0;
 #endif DEBUG_BLE
+
+  show_nfc = 1;
 
 #ifdef USE_FLASH
   // set FLASH page adress where programm settings are stored
@@ -1030,6 +1035,9 @@ void SetNFCprotocolCommand(int show)
     command[ 1] = 0x02;
     command[ 2] = 0x01;
     command[ 3] = 0x0F;
+
+    if ( show_nfc ) print_state("command sent, wait for answer...");
+
     send_NFC_PollReceive(command, sizeof(command));
     if ((resultBuffer[0] == 0) & (resultBuffer[1] == 0)) {
       if ( t > 0 ) {
@@ -1109,7 +1117,7 @@ void printIDNData(IDNDataType idnData)
 
 void send_NFC_PollReceive(byte *command, int commandLength)
 {
-//  print_state("send_NFC_PollReceive() - ");
+  if ( show_nfc ) print_state("send_NFC_PollReceive() - ");
   check_stack("#sndNFCPllRcv#");
   send_NFC_Command(command, commandLength);
   poll_NFC_UntilResponsIsReady();
@@ -1173,6 +1181,7 @@ void runIDNCommandUntilNoError(byte *command, int length, int maxTrials)
 void send_NFC_Command(byte *commandArray, int length)
 {
 //  check_stack("#nfcCmd#");
+  if ( show_nfc ) print_state("send_NFC_comand() -");
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x00);
   for (int i = 0; i < length; i++) {
@@ -1180,6 +1189,7 @@ void send_NFC_Command(byte *commandArray, int length)
   }
   digitalWrite(PIN_SPI_SS, HIGH);
   delay(1);
+  if ( show_nfc ) print_state("done");
 }
 
 void poll_NFC_UntilResponsIsReady()
@@ -1188,6 +1198,8 @@ void poll_NFC_UntilResponsIsReady()
   byte rb;
 
 //  check_stack("#pllNFCURisR#");
+
+  if ( show_nfc ) print_state("poll_NFC_UntilResponseIsReady() -");
 
   digitalWrite(PIN_SPI_SS , LOW);
   while ( (resultBuffer[0] != 8) && ((mymillis() - ms) < NFCTIMEOUT) )
@@ -1201,10 +1213,15 @@ void poll_NFC_UntilResponsIsReady()
     Serial.print("\r\n *** poll timeout *** -> response ");
     Serial.print(rb);
   }
+
+  if ( show_nfc ) print_state("done");
+
 }
 void receive_NFC_Response()
 {
 //  check_stack("#recNFCRsp#");
+  if ( show_nfc ) print_state("receive_NFC_Response() -");
+
   digitalWrite(PIN_SPI_SS, LOW);
   SPI.transfer(0x02);
   resultBuffer[0] = SPI.transfer(0);
@@ -1212,6 +1229,9 @@ void receive_NFC_Response()
   for (byte i = 0; i < resultBuffer[1]; i++) resultBuffer[i + 2] = SPI.transfer(0);
   digitalWrite(PIN_SPI_SS, HIGH);
   delay(1);
+
+  if ( show_nfc ) print_state("receive_NFC_Response() -");
+
 }
 
 bool idnResponseHasNoError()

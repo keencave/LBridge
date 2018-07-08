@@ -129,6 +129,7 @@
 //#define DEBUG                   // uncomment to have verbose debug output
 //#define FRAM_DEBUG              // uncomment to have verbose debug output for FRAM mechanism
 //#define DEBUG_BLE             // low level debug BLE communication
+//#define DEBUG_NFC             // low level debug NFC communication
 //#define USE_FLASH             // use FLASH storage
 //#define USE_POLL              // process polling messages from phone
 
@@ -502,7 +503,11 @@ void setup()
   show_ble = 0;
 #endif DEBUG_BLE
 
+#ifdef DEBUG_NFC
   show_nfc = 1;
+#else
+  show_nfc = 0;
+#endif DEBUG_NFC
 
 #ifdef USE_FLASH
   // set FLASH page adress where programm settings are stored

@@ -129,7 +129,7 @@
 //#define DEBUG                   // uncomment to have verbose debug output
 //#define FRAM_DEBUG              // uncomment to have verbose debug output for FRAM mechanism
 //#define DEBUG_BLE             // low level debug BLE communication
-//#define DEBUG_NFC             // low level debug NFC communication
+#define DEBUG_NFC             // low level debug NFC communication
 //#define USE_FLASH             // use FLASH storage
 //#define USE_POLL              // process polling messages from phone
 

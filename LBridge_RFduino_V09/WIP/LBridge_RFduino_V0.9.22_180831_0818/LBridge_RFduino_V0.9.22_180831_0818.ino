@@ -97,10 +97,15 @@
  *  - increased queue to 10h again
  * V0.9.19
  *  - switch OFF BLE stack when battery level is below minimum, otherwise BLE adv. will be seen even when battery is empty
- *  - code cleaning, resorted functions to adopt the code to Mareks xbridgeM project/file structure
- `V0.9.20
+ *  - code cleaning, resorted functions to adopt the code to Mareks xbridgeM project/file structure 
+ *  V0.9.20
  *  - added debug code for debugging Mareks T-Mini PCB
- */
+ *  V0.9.21
+ *  - changed Simblee MAXVOLTAGE from 3900 (for LiPo) to 3300 (for a 2032 cell)
+ * V0.9.22
+ *  - flush BLE cache after BLE reconnect to avoid double sending last packet
+ *  - function clearBuffer() changed, improper definition
+  */
 
  /*
   * to do:
@@ -110,17 +115,17 @@
 
 /* ********************* program configuration options **********************/
 
-//*#define RFD                     // uncomment for RFduino platform, otherwise Simblee platform will be used
-#define USE_DEAD_SENSOR         //* uncomment to work only with live sensors
+#define RFD                     // uncomment for RFduino platform, otherwise Simblee platform will be used
+//#define USE_DEAD_SENSOR         //* uncomment to work only with live sensors
 #define USE_SPIKE_FILTER        // uncomment to use a spike filter on raw data
 #define USE_SHADOWFRAM          // uncomment to work with a shadow FRAM copy of the Libre sensor FRAM
 #define USE_XBRIDGE2            // uncomment to use two way xbridge2 protocol with backfilling instead of LimiTTer
                                 // ASCII protocol (one way communication)
-#define SHORTSTARTCYCLE         //* uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
+//#define SHORTSTARTCYCLE         //* uncomment to have 10 inital 1 min cycles to have faster sensor start (@FPV_UAV)
 #define USE_WDT               // use watchdog with 11 min duration
 
-//*#define SERIALOFF               // switch off Serial interface during ULP for power saving
-#define SHOW_BLESTATECHANGE     //* uncomment to have serial BLE connect/disconnect messages (see also #define SERIALOFF)
+#define SERIALOFF               // switch off Serial interface during ULP for power saving
+//#define SHOW_BLESTATECHANGE     //* uncomment to have serial BLE connect/disconnect messages (see also #define SERIALOFF)
 
 //#define G4_MESSAGE            // use old G4 messages without timestamp
 //#define BLE_REAL_LEN            // use real length of BLE packets to send or limit to 20 chars?
@@ -129,7 +134,7 @@
 //#define DEBUG                   // uncomment to have verbose debug output
 //#define FRAM_DEBUG              // uncomment to have verbose debug output for FRAM mechanism
 //#define DEBUG_BLE             // low level debug BLE communication
-#define DEBUG_NFC             // low level debug NFC communication
+//#define DEBUG_NFC             // low level debug NFC communication
 //#define USE_FLASH             // use FLASH storage
 //#define USE_POLL              // process polling messages from phone
 
@@ -170,15 +175,15 @@ extern char *__brkval;
 #define LB_ADVERT "rfduino"       // dont change "rfduino"
                                   // length of device name and advertisement <=15!!!
 #define LB_VERSION "V0.9"         // program version
-#define LB_MINOR_VERSION ".20"    // indicates minor version
-#define LB_DATETIME "180707_1504" // date_time
+#define LB_MINOR_VERSION ".22"    // indicates minor version
+#define LB_DATETIME "180831_0818" // date_time
 #define SPIKE_HEIGHT 40           // minimum delta to be a spike
 
 #ifdef RFD
   #define MAX_VOLTAGE 3600        // adjust voltage measurement to have a wider rrange
   #define MIN_VOLTAGE 2300        // minimum voltage where BLE will work properly (@bertrooode)
 #else RFD
-  #define MAX_VOLTAGE 3800        // adjust voltage measurement to have a wider rrange
+  #define MAX_VOLTAGE 3300        // adjust voltage measurement to have a wider rrange
   #define MIN_VOLTAGE 2600        // minimum voltage where BLE will work properly (@FPV-UAV)
 #endif RFD
 
@@ -674,6 +679,7 @@ void loop()
 	  	while (SimbleeBLE.radioActive) {};
 		  SimbleeBLE.end();
 #endif /* RFD */
+      Serial.print(" - done");
       bleStackStarted = false;
       BTconnected = false;
     }
@@ -1345,7 +1351,16 @@ SystemInformationDataType systemInformationDataFromGetSystemInformationResponse(
   else
   {
     print_state(" *** error reading patch info, clearing UID");
-    clearBuffer(systemInformationData.uid);
+    clearBuffer(systemInformationData.uid, sizeof(systemInformationData.uid));
+    memset(decodedSensorSN, '\0', SENSORIDLEN);
+    sensorData.sensorSN = systemInformationData.sensorSN = &decodedSensorSN[0];
+
+    print_state("");
+    Serial.printf("decodedSensorSN: <%s> - ", decodedSensorSN);
+
+//    for ( int i = 0 ; i < SENSORIDLEN ; i++ )
+//      Serial.printf("0x%x ", decodedSensorSN[i]);
+
     systemInformationData.errorCode = resultBuffer[3];
   }
   return systemInformationData;
@@ -1356,7 +1371,10 @@ void printSystemInformationData(SystemInformationDataType systemInformationData)
   check_stack("#psid#");
 
   print_state("");
-  Serial.printf("Sensor SN: %s", systemInformationData.sensorSN);
+  if ( strlen(systemInformationData.sensorSN) > 0 )
+    Serial.printf("Sensor SN: %s", systemInformationData.sensorSN);
+  else
+    Serial.printf("Sensor SN: not known");
 }
 
 bool readSensorData()
@@ -1370,7 +1388,7 @@ bool readSensorData()
 
 #ifndef USE_SHADOWFRAM
 
-  clearBuffer(dataBuffer);
+  clearBuffer(dataBuffer, sizeof(dataBuffer));
   // @UPetersen: Footer sollte nur einmal gelesen werden, da er nicht verwendet wird
   for (int i = 0; i < 43; i++) {
     resultCode = ReadSingleBlockReturn(i);
@@ -1424,7 +1442,7 @@ bool readSensorData()
   reReadBlocksWhereResultCodeStillHasEnError(RXBuffer, &sensor, SS_PIN);
 
   // to be optimized - copy FRAM sensor data to thr original used array
-  clearBuffer(dataBuffer);
+  clearBuffer(dataBuffer, sizeof(dataBuffer));
   for (int i = 0; i < 43*8; i++) {
     dataBuffer[i] = sensor.fram[i];
   }
@@ -1504,11 +1522,11 @@ bool responseHasNoError()
   return false;
 }
 
-void clearBuffer(byte *tmpBuffer)
+void clearBuffer(byte *tmpBuffer, int tmpBuffersize)
 {
   check_stack("#clrb#");
 
-  memset(tmpBuffer, 0, sizeof(tmpBuffer));
+  memset(tmpBuffer, 0, tmpBuffersize);
 }
 
 #ifdef USE_SHADOWFRAM
@@ -2258,7 +2276,8 @@ unsigned char bleBufRead(void)
   if ( bleBufRi != bleBufWi ) {
     ret = bleBuf[bleBufRi++];
     if ( show_ble) {
-      Serial.print(ret, HEX); Serial.print(" ");
+      Serial.printf("0x%x ", ret);
+//      Serial.print(ret, HEX); Serial.print(" ");
     }
     if ( bleBufRi >= BLEBUFLEN )
       bleBufRi = 0;
@@ -2552,6 +2571,14 @@ void send_data(unsigned char *msg, unsigned char len)
     setupBluetoothConnection();
   }
 */
+  if ( show_ble ) {
+    print_state("sending: <");
+    for ( i = 0 ; i < len ; i++ )
+      Serial.printf("%x ", msg[i]);
+    Serial.print(">");
+    print_state("response: ");
+  }
+
   if ( len > MAXBLELEN ) {
 #ifdef RFD
   RFduinoBLE.send((char *)msg, len);
@@ -2569,14 +2596,6 @@ void send_data(unsigned char *msg, unsigned char len)
 #endif RFD
   }
   waitDoingServices(100, 1);             // give phone time to process the packet
-
-  if ( show_ble ) {
-    print_state("sending: <");
-    for ( i = 0 ; i < len ; i++ )
-      Serial.printf("%x ", msg[i]);
-    Serial.print(">");
-    print_state("response: ");
-  }
 }
 
 #ifdef RFD
@@ -2605,9 +2624,13 @@ void RFduinoBLE_onConnect()
 {
   check_stack("#onc#");
 
+  char v[1];                  // send 0 to clear internal BLE chache
+  v[0] = 0;
+  RFduinoBLE.send(v, 1);
+
   BTconnected = true;
 #ifdef SHOW_BLESTATECHANGE
-  print_state("+++++++++++++ BLE conn");
+  print_state("+++++++++++++ BLE conn, RFduino cache cleared");
 #endif
 }
 
@@ -2647,8 +2670,13 @@ void SimbleeBLE_onConnect()
 {
   check_stack("#ocon#");
   BTconnected = true;
+
+  char v[1];
+  v[0] = 0;
+  SimbleeBLE.send(v, 1);
+
 #ifdef SHOW_BLESTATECHANGE
-  print_state("+++++++++++++ BLE conn");
+  print_state("+++++++++++++ BLE conn, Simblee cache cleared");
 #endif
 }
 
@@ -3275,4 +3303,3 @@ void print_NFC_WakeUpRegisterResponse()
 #endif
 
 /* ************************ end of LBridge code **************** */
-

@@ -1,0 +1,227 @@
+
+============================================================================
+[480][002][081] LBridge starting (Simblee)
+	BLE name: xbridgeR, V0.9.20 from 180707_1504
+	RAM used: 6680, Flash used: 54656
+	Queue size: 120 (10 h)
+	Options:-useDeadSensor-spikeFilter40-xbridge2-shadowFRAM-10cycles1min-WDT
+[480][002][320] SoC Data:
+	U[mv]: 3354 (62%)
+	SoC Temp[C]: 27.25 Temp[F]: 81.5
+	RSSI: 0.0
+[480][002][351] system start with 1 min cycyle time
+[480][002][437] configSPI() - done
+[480][002][504] NFC_wakeUp() - done
+[480][002][562] SetNFCprotocolCommand() - done
+[480][002][615] runIDNCommand() - done
+	NFC Device ID: 4E:46:43:20:46:53:32:4A:41:53:54:34 (NFC FS2JAST4)
+	NFC Device CRC  2A:CE
+[480][002][721] configure watchdog timer
+[480][002][830] configure and start BLE stack - setting xbridge/wixel device
+[480][002][928] prepare 8 h backfilling - current runtime = 480 min
+[480][003][025] NFCReady = 1, BatOK = 1
+[480][003][045] (setup()) - free RAM = 17815, min. RAM avail log: 8192, Stack Size = -16317
+============================================================================
+=== ... loop #0-RSSI:0.0-3354mV/62%-SocTemp:27.25C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[480][003][729]  *** error reading patch info, clearing UID
+[480][003][793] Sensor SN:  - failed, CRC check (Header-Body-Footer) = 0 0 0
+[480][011][879] no sensor data received, put 0 to queue
+[480][011][989] got glucose(0.0) at 480 min, stored at 96, inc. write to 97 - 
+[480][012][010] no sensor data to transmit
+[480][012][119] restarting BT stack, stop BLE
+[480][012][521] configure and start BLE stack - setting xbridge/wixel device
+[480][012][619] loop #0-end-NFCReady=1-sleep51s
+=== ... loop #1-RSSI:0.0-3324mV/60%-SocTemp:26.50C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[481][004][405]  *** error reading patch info, clearing UID
+[481][004][469] Sensor SN:  - failed, CRC check (Header-Body-Footer) = 0 0 0
+[481][012][555] no sensor data received, put 0 to queue
+[481][012][665] got glucose(0.0) at 481 min, stored at 97, inc. write to 98 - 
+[481][012][686] no sensor data to transmit
+[481][012][795] restarting BT stack, stop BLE
+[481][013][219] configure and start BLE stack - setting xbridge/wixel device
+[481][013][317] loop #1-end-NFCReady=1-sleep51s
+=== ... loop #2-RSSI:0.0-3250mV/54%-SocTemp:26.0C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[482][004][874] Sensor SN: 0M0000VFJQD
+[482][004][893] sensor UID missing or changed, reinitialize sensor data structure - Sensor status: SHUTDOWN
+[482][005][323]  *** set initial minutesSinceStart to 21549 min, 28925323 ms
+[482][005][422] got glucose(3.17) at 482 min, stored at 98, inc. write to 99 - 
+[482][005][467] found 98 reading(s) for backfilling, stored in queue ...
+[482][005][536] dataTransferBLE(), wait 100 s for BLE connect ...
+[483][045][613] restarting BT stack, stop BLE
+[483][045][835] configure and start BLE stack - setting xbridge/wixel device
+[483][045][932] loop #2-end-NFCReady=1-sleep19s
+=== ... loop #3-RSSI:0.0-3198mV/49%-SocTemp:25.25C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[484][005][372] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[484][005][471] got glucose(3.17) at 484 min, stored at 99, inc. write to 100 - 
+[484][005][506] dataTransferBLE(), wait 100 s for BLE connect ...
+[485][045][590] restarting BT stack, stop BLE
+[485][046][038] configure and start BLE stack - setting xbridge/wixel device
+[485][046][136] loop #3-end-NFCReady=1-sleep19s
+=== ... loop #4-RSSI:0.0-3135mV/44%-SocTemp:24.75C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[486][006][119] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[486][006][218] got glucose(3.17) at 486 min, stored at 100, inc. write to 101 - 
+[486][006][253] dataTransferBLE(), wait 100 s for BLE connect ...
+[487][046][338] restarting BT stack, stop BLE
+[487][046][806] configure and start BLE stack - setting xbridge/wixel device
+[487][046][903] loop #4-end-NFCReady=1-sleep19s
+=== ... loop #5-RSSI:0.0-3097mV/41%-SocTemp:24.25C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[488][006][862] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[488][006][961] got glucose(3.17) at 488 min, stored at 101, inc. write to 102 - 
+[488][006][996] dataTransferBLE(), wait 100 s for BLE connect ...
+[489][047][100] restarting BT stack, stop BLE
+[489][047][192] configure and start BLE stack - setting xbridge/wixel device
+[489][047][290] loop #5-end-NFCReady=1-sleep19s
+=== ... loop #6-RSSI:0.0-3068mV/39%-SocTemp:24.0C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[490][007][229] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[490][007][328] got glucose(3.17) at 490 min, stored at 102, inc. write to 103 - 
+[490][007][363] dataTransferBLE(), wait 100 s for BLE connect ...
+[491][047][448] restarting BT stack, stop BLE
+[491][047][567] configure and start BLE stack - setting xbridge/wixel device
+[491][047][664] loop #6-end-NFCReady=1-sleep19s
+=== ... loop #7-RSSI:0.0-3045mV/37%-SocTemp:23.75C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[492][007][624] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[492][007][723] got glucose(3.17) at 492 min, stored at 103, inc. write to 104 - 
+[492][007][758] dataTransferBLE(), wait 100 s for BLE connect ...
+[493][047][843] restarting BT stack, stop BLE
+[493][048][393] configure and start BLE stack - setting xbridge/wixel device
+[493][048][490] loop #7-end-NFCReady=1-sleep19s
+=== ... loop #8-RSSI:0.0-3027mV/35%-SocTemp:23.75C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[494][008][449] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[494][008][548] got glucose(3.17) at 494 min, stored at 104, inc. write to 105 - 
+[494][008][583] dataTransferBLE(), wait 100 s for BLE connect ...
+[495][011][333] +++++++++++++ BLE conn
+[495][011][675] try sending [261 BG / -495 min / 0] - ACK / 10191 ms
+[495][021][966] try sending [261 BG / -490 min / 1] - ACK / 291 ms
+[495][022][357] try sending [261 BG / -485 min / 2] - ACK / 339 ms
+[495][022][796] try sending [261 BG / -480 min / 3] - ACK / 338 ms
+[495][023][234] try sending [269 BG / -475 min / 4] - ACK / 290 ms
+[495][023][624] try sending [269 BG / -470 min / 5] - ACK / 290 ms
+[495][024][014] try sending [269 BG / -465 min / 6] - ACK / 339 ms
+[495][024][453] try sending [271 BG / -460 min / 7] - ACK / 290 ms
+[495][024][843] try sending [271 BG / -455 min / 8] - ACK / 290 ms
+[495][025][233] try sending [271 BG / -450 min / 9] - ACK / 290 ms
+[495][025][623] try sending [32 BG / -445 min / 10] - ACK / 290 ms
+[495][026][013] try sending [32 BG / -440 min / 11] - ACK / 290 ms
+[495][026][403] try sending [32 BG / -435 min / 12] - ACK / 290 ms
+[495][026][793] try sending [261 BG / -430 min / 13] - ACK / 290 ms
+[495][027][183] try sending [261 BG / -425 min / 14] - ACK / 339 ms
+[495][027][622] try sending [261 BG / -420 min / 15] - ACK / 290 ms
+[495][028][012] try sending [261 BG / -415 min / 16] - ACK / 339 ms
+[495][028][451] try sending [261 BG / -410 min / 17] - ACK / 338 ms
+[495][028][889] try sending [261 BG / -405 min / 18] - ACK / 339 ms
+[495][029][328] try sending [261 BG / -400 min / 19] - ACK / 339 ms
+[495][029][767] try sending [261 BG / -395 min / 20] - ACK / 339 ms
+[495][030][206] try sending [261 BG / -390 min / 21] - ACK / 339 ms
+[495][030][645] try sending [261 BG / -385 min / 22] - ACK / 338 ms
+[495][031][083] try sending [261 BG / -380 min / 23] - ACK / 291 ms
+[495][031][474] try sending [261 BG / -375 min / 24] - ACK / 289 ms
+[495][031][863] try sending [261 BG / -370 min / 25] - ACK / 291 ms
+[495][032][254] try sending [261 BG / -365 min / 26] - ACK / 290 ms
+[495][032][644] try sending [261 BG / -360 min / 27] - ACK / 290 ms
+[495][033][034] try sending [261 BG / -355 min / 28] - ACK / 290 ms
+[495][033][424] try sending [261 BG / -350 min / 29] - ACK / 290 ms
+[495][033][814] try sending [261 BG / -345 min / 30] - ACK / 290 ms
+[495][034][204] try sending [261 BG / -340 min / 31] - ACK / 290 ms
+[495][034][594] try sending [261 BG / -335 min / 32] - ACK / 290 ms
+[495][034][984] try sending [261 BG / -330 min / 33] - ACK / 290 ms
+[495][035][374] try sending [261 BG / -325 min / 34] - ACK / 290 ms
+[495][035][764] try sending [261 BG / -320 min / 35] - ACK / 290 ms
+[495][036][154] try sending [261 BG / -315 min / 36] - ACK / 290 ms
+[495][036][544] try sending [261 BG / -310 min / 37] - ACK / 290 ms
+[495][036][934] try sending [261 BG / -305 min / 38] - ACK / 290 ms
+[495][037][324] try sending [261 BG / -300 min / 39] - ACK / 290 ms
+[495][037][714] try sending [261 BG / -295 min / 40] - ACK / 290 ms
+[495][038][104] try sending [261 BG / -290 min / 41] - ACK / 290 ms
+[495][038][494] try sending [261 BG / -285 min / 42] - ACK / 290 ms
+[495][038][884] try sending [261 BG / -280 min / 43] - ACK / 290 ms
+[495][039][274] try sending [261 BG / -275 min / 44] - ACK / 290 ms
+[495][039][664] try sending [261 BG / -270 min / 45] - ACK / 339 ms
+[495][040][103] try sending [261 BG / -265 min / 46] - ACK / 290 ms
+[495][040][493] try sending [261 BG / -260 min / 47] - ACK / 339 ms
+[495][040][932] try sending [261 BG / -255 min / 48] - ACK / 290 ms
+[495][041][322] try sending [261 BG / -250 min / 49] - ACK / 290 ms
+[495][041][712] try sending [261 BG / -245 min / 50] - ACK / 289 ms
+[495][042][101] try sending [261 BG / -240 min / 51] - ACK / 290 ms
+[495][042][491] try sending [261 BG / -235 min / 52] - ACK / 290 ms
+[495][042][881] try sending [261 BG / -230 min / 53] - ACK / 339 ms
+[495][043][320] try sending [261 BG / -225 min / 54] - ACK / 290 ms
+[495][043][710] try sending [261 BG / -220 min / 55] - ACK / 290 ms
+[495][044][100] try sending [261 BG / -215 min / 56] - ACK / 290 ms
+[495][044][490] try sending [261 BG / -210 min / 57] - ACK / 290 ms
+[495][044][880] try sending [261 BG / -205 min / 58] - ACK / 291 ms
+[495][045][271] try sending [261 BG / -200 min / 59] - ACK / 290 ms
+[495][045][661] try sending [261 BG / -195 min / 60] - ACK / 290 ms
+[495][046][051] try sending [261 BG / -190 min / 61] - ACK / 290 ms
+[495][046][441] try sending [261 BG / -185 min / 62] - ACK / 289 ms
+[495][046][830] try sending [261 BG / -180 min / 63] - ACK / 291 ms
+[495][047][221] try sending [261 BG / -175 min / 64] - ACK / 289 ms
+[495][047][610] try sending [261 BG / -170 min / 65] - ACK / 291 ms
+[495][048][001] try sending [261 BG / -165 min / 66] - ACK / 290 ms
+[495][048][391] try sending [261 BG / -160 min / 67] - ACK / 290 ms
+[495][048][781] try sending [261 BG / -155 min / 68] - ACK / 290 ms
+[495][049][171] try sending [261 BG / -150 min / 69] - ACK / 290 ms
+[495][049][561] try sending [261 BG / -145 min / 70] - ACK / 290 ms
+[495][049][951] try sending [261 BG / -140 min / 71] - ACK / 290 ms
+[495][050][341] try sending [261 BG / -135 min / 72] - ACK / 290 ms
+[495][050][731] try sending [261 BG / -130 min / 73] - ACK / 290 ms
+[495][051][121] try sending [261 BG / -125 min / 74] - ACK / 290 ms
+[495][051][511] try sending [261 BG / -120 min / 75] - ACK / 290 ms
+[495][051][901] try sending [261 BG / -115 min / 76] - ACK / 290 ms
+[495][052][291] try sending [261 BG / -110 min / 77] - ACK / 290 ms
+[495][052][681] try sending [261 BG / -105 min / 78] - ACK / 290 ms
+[495][053][071] try sending [261 BG / -100 min / 79] - ACK / 290 ms
+[495][053][461] try sending [261 BG / -95 min / 80] - ACK / 290 ms
+[495][053][851] try sending [261 BG / -90 min / 81] - ACK / 290 ms
+[495][054][241] try sending [261 BG / -85 min / 82] - ACK / 290 ms
+[495][054][631] try sending [261 BG / -80 min / 83] - ACK / 290 ms
+[495][055][021] try sending [261 BG / -75 min / 84] - ACK / 290 ms
+[495][055][411] try sending [261 BG / -70 min / 85] - ACK / 290 ms
+[495][055][801] try sending [261 BG / -65 min / 86] - ACK / 2142 ms
+[495][058][043] try sending [261 BG / -60 min / 87] - ACK / 291 ms
+[495][058][434] try sending [261 BG / -55 min / 88] - ACK / 290 ms
+[495][058][824] try sending [261 BG / -50 min / 89] - ACK / 290 ms
+[495][059][214] try sending [261 BG / -45 min / 90] - ACK / 290 ms
+[495][059][604] try sending [261 BG / -40 min / 91] - ACK / 290 ms
+[495][059][994] try sending [261 BG / -35 min / 92] - ACK / 290 ms
+[496][000][384] try sending [261 BG / -30 min / 93] - ACK / 290 ms
+[496][000][774] try sending [3 BG / -25 min / 94] - ACK / 290 ms
+[496][001][164] try sending [3 BG / -20 min / 95] - ACK / 290 ms
+[496][001][554] try sending [2 BG / -15 min / 96] - ACK / 290 ms
+[496][001][944] try sending [3 BG / -14 min / 97] - ACK / 290 ms
+[496][002][334] try sending [3 BG / -13 min / 98] - ACK / 290 ms
+[496][002][724] try sending [3 BG / -11 min / 99] - ACK / 290 ms
+[496][003][114] try sending [3 BG / -9 min / 100] - ACK / 290 ms
+[496][003][504] try sending [3 BG / -7 min / 101] - ACK / 290 ms
+[496][003][894] try sending [3 BG / -5 min / 102] - ACK / 290 ms
+[496][004][284] try sending [3 BG / -3 min / 103] - ACK / 290 ms
+[496][004][674] try sending [3 BG / -1 min / 104] - ACK / 290 ms
+[496][004][964] loop #8-end-NFCReady=1-sleep3s
+=== BLE loop #9-RSSI:-60.0-3008mV/34%-SocTemp:23.50C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[496][008][618] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[496][008][719] got glucose(3.17) at 496 min, stored at 105, inc. write to 106 - 
+[496][008][753] try sending [3 BG / -0 min / 105] - ACK / 355 ms
+[496][009][108] loop #9-end-NFCReady=1-sleep59s
+[497][005][069] +++++++++++++ BLE lost
+[497][006][654] +++++++++++++ BLE conn
+=== BLE loop #10-RSSI:-70.0-2982mV/31%-SocTemp:23.75C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[497][008][608] switch back to normal cycle time 5 min
+[497][008][846] Sensor SN: 0M0000VFJQD - Sensor status: SHUTDOWN
+[497][008][946] got glucose(3.17) at 497 min, stored at 106, inc. write to 107 - 
+[497][008][980] try sending [3 BG / -0 min / 106] - ACK / 363 ms
+[497][009][343] loop #10-end-NFCReady=1-sleep299s
+=== BLE loop #11-RSSI:-47.0-2997mV/33%-SocTemp:23.50C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[502][009][163]  *** error reading patch info, clearing UID
+[502][009][227] Sensor SN: 
+[502][009][247] sensor UID missing or changed, reinitialize sensor data structure - failed, CRC check (Header-Body-Footer) = 0 0 0
+[502][017][381] no sensor data received, put 0 to queue
+[502][017][491] got glucose(0.0) at 502 min, stored at 107, inc. write to 108 - 
+[502][017][512] no sensor data to transmit
+[502][017][623] loop #11-end-NFCReady=1-sleep291s
+=== BLE loop #12-RSSI:-54.0-2993mV/32%-SocTemp:22.75C-(xbridgeR,V0.9.20/180707_1504,8192RAM,Simblee) ===
+[507][009][112] Sensor SN: 0M0000VFJQD
+[507][009][131] sensor UID missing or changed, reinitialize sensor data structure - Sensor status: SHUTDOWN
+[507][009][575] got glucose(3.17) at 507 min, stored at 108, inc. write to 109 - 
+[507][009][609] found 1 reading(s) for backfilling, stored in queue ...
+[507][009][694] try sending [2 BG / -4 min / 107] - ACK / 424 ms
+[507][010][218] try sending [3 BG / -0 min / 108] - ACK / 339 ms
+[507][010][557] loop #12-end-NFCReady=1-sleep298s

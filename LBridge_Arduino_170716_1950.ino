@@ -28,32 +28,13 @@
    I/O: pin 6                       RX:  pin 4
 */
 
-/* 
- changes since 170716_1950:
-  	- AT+RENEW fail mechanism disabled to ensure usage with modified fake modules
-	- display serial status chars while sleeping
-	- detect faulty sensorsa during normal lifetime of 14 days
-	- removed fault in status display of spike removal
-	- added AT command before AT+ commands to break BLE connection if active
-	- hard system reset if AT+NOTI1 command cannot be processed
-	- slightly modified debug oputput
-  V09.0.1:
-  - new version number / minor version number
-  V0.9.0.2:
-  - use 13 bit mask for raw values to avoid overflow errors
-  V0.9.0.3:
-  - @JoernL - moved init code for BM019 to configNFC, otherwise it will be powered up also in case of BLE init fail
-*/
-
 /* ************************************************ */
 /* *** config #DEFINES **************************** */
 /* ************************************************ */
 
-#define RELEASE_VERSION
+#define RELEASE_VERSION         // use fixed config for a release version
 
-#define LB_DATETIME "180625_1945"
-#define LB_VERSION "V0.9"        // version number
-#define LB_MINOR_VERSION ".0.2"  // indicates minor version
+#define LVERSION "0716_1950"    // version number
 
 #ifdef RELEASE_VERSION
 
@@ -65,24 +46,24 @@
 #define ATFAIL_REBOOT         // reboot system if AT+NOTI goes fail
 #define N_ATRESET             // do a AT+RESET after every BLE wakeup?
 #define TRANSFER_LIVETIME     // send sensor lifetime
-#define N_XBEXT               // xbridge extended code
-
+#define N_SHOW_VOLTAGE        // display voltage statistics, toogle init value, 'V' command
+#define N_SHOW_QUEUE          // display internal BG readings queue / enable DB_PKT
 // less common settings for debug or test
 #define N_DB_PKT              // display BG queue, 'X' command
 #define N_DB_VOLTAGE            // display battery usage, 'V' command
 #define N_SIMU_LIVETIME       // simulate sensor livetime
 #define N_HW_BLE              // detect BLE conn status with system LED pin connected to arduino pin 2
 #define N_DYNAMIC_TXID        // get TXID automatically
+#define N_XBEXT               // xbridge extended code
 #define N_DB_NFC_DATA         // debug NFC data
 #define N_SIMU_BG             // simulate BG readings from dead sensor, ramp curve
+#define N_SHOW_LIMITTER       // show original Limitter output
 #define N_UPDATE_HM1X         // use with extreme care! update HM-11
 #define N_DB_PROCESSING       // extended debug output
-#define N_INIT_WITH_RENEW     // send AT+RENEW at BLE init - will kill fake modules as setting them to 115200
-#define N_SAFETY_RENEW        // send AT+RENEW after 30 min of no BLE
 
 #else /* RELEASE_VERSION */
 
-#define LNAME    "LimiTTerTVW"  // BLE name, must begin with "LimiTTer" to avoid misfunctions in xDrip+
+#define LNAME    "LimiTTer2VW"  // BLE name, must begin with "LimiTTer" to avoid misfunctions in xDrip+
 // important features 
 #define USE_DEAD_SENSOR       // we can test with a dead sensor
 #define REMOVE_SPIKES         // use NFC data smoothing (LimiTTer method)?
@@ -90,20 +71,20 @@
 #define ATFAIL_REBOOT         // reboot system if AT+NOTI goes fail
 #define N_ATRESET             // do a AT+RESET after every BLE wakeup?
 #define TRANSFER_LIVETIME     // send sensor lifetime
-#define N_XBEXT               // xbridge extended code
-
+#define SHOW_VOLTAGE          // display voltage statistics, toogle init value, 'V' command
+#define SHOW_QUEUE            // display internal BG readings queue / enable DB_PKT
 // less common settings for debug or test
 #define N_DB_PKT                // display BG queue, 'X' command
 #define N_DB_VOLTAGE            // display battery usage, 'V' command
 #define N_SIMU_LIVETIME       // simulate sensor livetime
 #define N_HW_BLE              // detect BLE conn status with system LED pin connected to arduino pin 2
-#define DYNAMIC_TXID        // get TXID automatically
+#define N_DYNAMIC_TXID        // get TXID automatically
+#define N_XBEXT               // xbridge extended code
 #define N_DB_NFC_DATA         // debug NFC data
 #define N_SIMU_BG               // simulate BG readings from dead sensor, ramp curve
+#define N_SHOW_LIMITTER       // show original Limitter output
 #define N_UPDATE_HM1X         // use with extreme care! update HM-11
 #define N_DB_PROCESSING         // extended debug output
-#define N_INIT_WITH_RENEW     // send AT+RENEW at BLE init - will kill fake modules as setting them to 115200
-#define N_SAFETY_RENEW        // send AT+RENEW after 30 min of no BLE
 
 #endif /* RELEASE_VERSION */
 
@@ -220,13 +201,21 @@ unsigned long next_normal_start;  // next normal 5 min start time
 
 int loop_state;                   // state machine for loop
 
+#ifdef SHOW_VOLTAGE
+boolean v_command = 1;              // v command received?
+#else
 boolean v_command = 0;              // v command received?
+#endif
 
 #ifdef DB_VOLTAGE
 #define VOLTAGE_INTERVAL  24
 #endif
 
+#ifdef SHOW_QUEUE
+boolean x_command = 1;              // X command received?
+#else
 boolean x_command = 0;              // X command received?
+#endif
 
 int pkt_retries;
 
@@ -397,17 +386,16 @@ unsigned long abs_millis(void)
 // initialize the hardware
 void setup() {
   // NFC part
-  // @JoernL/0.9.3 - move init codes to configNFC()
   pinMode(IRQPin, OUTPUT);
-//  digitalWrite(IRQPin, HIGH);
+  digitalWrite(IRQPin, HIGH);
   pinMode(SSPin, OUTPUT);
-//  digitalWrite(SSPin, HIGH);
+  digitalWrite(SSPin, HIGH);
   pinMode(NFCPin1, OUTPUT);
-//  digitalWrite(NFCPin1, HIGH);
+  digitalWrite(NFCPin1, HIGH);
   pinMode(NFCPin2, OUTPUT);
-//  digitalWrite(NFCPin2, HIGH);
+  digitalWrite(NFCPin2, HIGH);
   pinMode(NFCPin3, OUTPUT);
-//  digitalWrite(NFCPin3, HIGH);
+  digitalWrite(NFCPin3, HIGH);
 
   // BLE part
   pinMode(BLEPin, OUTPUT); // Disable this for Android 4
@@ -436,8 +424,6 @@ void setup() {
 
 void SetProtocol_Command() {
   unsigned long ct;
-
-//  print_state(F("do SetProtocol_Command() ..."));
 
   digitalWrite(SSPin, LOW);
   SPI.transfer(0x00);  // SPI control byte to send command to CR95HF
@@ -482,13 +468,10 @@ void SetProtocol_Command() {
     NFCReady = 0; // NFC not ready
     nfc_prot_set_cmd_errors++;
   }
-//  print_state(F("done SetProtocol_Command() ..."));
 }
 
 void Inventory_Command() {
   unsigned long ct;
-  int cnt = 0;
-
   digitalWrite(SSPin, LOW);
   SPI.transfer(0x00);  // SPI control byte to send command to CR95HF
   SPI.transfer(0x04);  // Send Receive CR95HF command
@@ -513,37 +496,29 @@ void Inventory_Command() {
   digitalWrite(SSPin, HIGH);
   delay(1);
 
-//  print_state(F("poll Inventory_Command successfull"));
+  digitalWrite(SSPin, LOW);
+  SPI.transfer(0x02);   // SPI control byte for read
+  RXBuffer[0] = SPI.transfer(0);  // response code
+  RXBuffer[1] = SPI.transfer(0);  // length of data
+  for (byte i = 0; i < RXBuffer[1]; i++)
+    RXBuffer[i + 2] = SPI.transfer(0); // data
+  digitalWrite(SSPin, HIGH);
+  delay(1);
 
-  while ( cnt++ < 10 ) {
-    digitalWrite(SSPin, LOW);
-    SPI.transfer(0x02);   // SPI control byte for read
-    RXBuffer[0] = SPI.transfer(0);  // response code
-    RXBuffer[1] = SPI.transfer(0);  // length of data
-    for (byte i = 0; i < RXBuffer[1]; i++)
-      RXBuffer[i + 2] = SPI.transfer(0); // data
-    digitalWrite(SSPin, HIGH);
-    delay(1);
-
-    if (RXBuffer[0] == 128)  // is response code good?
-    {
-  #ifdef DB_PROCESSING
-      print_state(F("Sensor in range ... OK"));
-  #endif
-      NFCReady = 2;
-      sensor_oor = 0;
-      break;
-    }
-    else
-    {
-      print_state(F("Sensor out of range"));
-      NFCReady = 1;
-      nfc_inv_cmd_errors++;
-      sensor_oor = 1;
-    }
-
-    delay(100);
-
+  if (RXBuffer[0] == 128)  // is response code good?
+  {
+#ifdef DB_PROCESSING
+    print_state(F("Sensor in range ... OK"));
+#endif
+    NFCReady = 2;
+    sensor_oor = 0;
+  }
+  else
+  {
+    print_state(F("Sensor out of range"));
+    NFCReady = 1;
+    nfc_inv_cmd_errors++;
+    sensor_oor = 1;
   }
 }
 
@@ -718,7 +693,7 @@ float Read_Memory(boolean *readDone)
           currentGlucose = Glucose_Reading(strtoul(trendNow.c_str(), NULL , 16));
           trendOneGlucose = Glucose_Reading(strtoul(trendOne.c_str(), NULL , 16));
           trendTwoGlucose = Glucose_Reading(strtoul(trendTwo.c_str(), NULL , 16));
-          print_state(F("sensor trend = ")); Serial.print(currentGlucose);
+          print_state(F("currentGlucose = ")); Serial.print(currentGlucose);
 #ifdef DB_NFC_DATA1
           print_state(F("glucosepointer = 0: "));
           Serial.print(trendNow); Serial.print(F(" "));
@@ -733,7 +708,7 @@ float Read_Memory(boolean *readDone)
           if (((lastGlucose - currentGlucose) > SPIKE_RANGE) || ((currentGlucose - lastGlucose) > SPIKE_RANGE)) {
               spikeCount++;
             print_state(F("spike detected: CG ")); Serial.print(currentGlucose); 
-            Serial.print(F(", LG ")); Serial.print(lastGlucose); 
+            Serial.print(F(", LG ")); Serial.print(currentGlucose); 
             if (((lastGlucose - trendOneGlucose) > SPIKE_RANGE) || ((trendOneGlucose - lastGlucose) > SPIKE_RANGE))
               currentGlucose = trendTwoGlucose;
             else
@@ -748,7 +723,7 @@ float Read_Memory(boolean *readDone)
           currentGlucose = Glucose_Reading(strtoul(trendNow.c_str(), NULL , 16));
           trendOneGlucose = Glucose_Reading(strtoul(trendOne.c_str(), NULL , 16));
           trendTwoGlucose = Glucose_Reading(strtoul(trendTwo.c_str(), NULL , 16));
-          print_state(F("sensor trend = ")); Serial.print(currentGlucose);
+          print_state(F("currentGlucose = ")); Serial.print(currentGlucose);
 #ifdef DB_NFC_DATA1
           print_state(F("glucosepointer = 1: "));
           Serial.print(trendNow); Serial.print(F(" "));
@@ -763,7 +738,7 @@ float Read_Memory(boolean *readDone)
           if (((lastGlucose - currentGlucose) > SPIKE_RANGE) || ((currentGlucose - lastGlucose) > SPIKE_RANGE)) {
               spikeCount++;
             print_state(F("spike detected: CG ")); Serial.print(currentGlucose); 
-            Serial.print(F(", LG ")); Serial.print(lastGlucose); 
+            Serial.print(F(", LG ")); Serial.print(currentGlucose); 
             if (((lastGlucose - trendOneGlucose) > SPIKE_RANGE) || ((trendOneGlucose - lastGlucose) > SPIKE_RANGE))
               currentGlucose = trendTwoGlucose;
             else
@@ -778,7 +753,7 @@ float Read_Memory(boolean *readDone)
           currentGlucose = Glucose_Reading(strtoul(trendNow.c_str(), NULL , 16));
           trendOneGlucose = Glucose_Reading(strtoul(trendOne.c_str(), NULL , 16));
           trendTwoGlucose = Glucose_Reading(strtoul(trendTwo.c_str(), NULL , 16));
-          print_state(F("sensor trend = ")); Serial.print(currentGlucose);
+          print_state(F("currentGlucose = ")); Serial.print(currentGlucose);
 #ifdef DB_NFC_DATA
           print_state(F("glucosepointer > 1: "));
           Serial.print(trendNow); Serial.print(F(" "));
@@ -805,7 +780,7 @@ float Read_Memory(boolean *readDone)
           if (((lastGlucose - currentGlucose) > SPIKE_RANGE) || ((currentGlucose - lastGlucose) > SPIKE_RANGE)) {
               spikeCount++;
             print_state(F("spike detected: CG ")); Serial.print(currentGlucose); 
-            Serial.print(F(", LG ")); Serial.print(lastGlucose); 
+            Serial.print(F(", LG ")); Serial.print(currentGlucose); 
             if (((lastGlucose - trendOneGlucose) > SPIKE_RANGE) || ((trendOneGlucose - lastGlucose) > SPIKE_RANGE))
               currentGlucose = trendTwoGlucose;
             else
@@ -861,7 +836,7 @@ float Read_Memory(boolean *readDone)
     else
       shownGlucose = currentGlucose; // If all is going wrong, nevertheless take and show a value
 
-    if ( lastGlucose == currentGlucose ) // faulty sensor check, can happen before end of lifetime (@NFCole)
+    if ( lastGlucose == currentGlucose ) // faulty sensor check (@NFCole)
       noDiffCount++;
 
     if (lastGlucose != currentGlucose) // Reset the counter
@@ -975,7 +950,7 @@ float Read_Memory(boolean *readDone)
 }
 
 float Glucose_Reading(unsigned int val) {
-  int bitmask = 0x1FFF;		/* use 13 bit to avoid overflow errors */
+  int bitmask = 0x0FFF;
   return ((val & bitmask) / 8.5);
 }
 
@@ -1021,12 +996,9 @@ void goToSleep(int time) {
   eights = time / 8;
   ones = time % 8;
   //  Serial.print(eights); Serial.print(F(" x 8 s, ")); Serial.print(ones); Serial.print(F(" x 1 s) - "));
-  Serial.print(F("\r\n"));
   waitDoingServices(300, 1);      // empty serial line, decode OK+LOST including error outout
   // wait in the 8 s cycle
   for (int i = 0; i < eights; i++) {
-    Serial.print(F("~"));
-    delay(5),
     MCUSR = 0;
     WDTCSR |= 0b00011000;
     WDTCSR =  0b01000000 | WDT_8S_MASK;
@@ -1038,8 +1010,6 @@ void goToSleep(int time) {
   //  Serial.print(F(" - the ones"));
   //  delay(15); // give time to print the serial chars
   for (int i = 0; i < ones; i++) {
-   Serial.print(F("."));
-    delay(5);
     MCUSR = 0;
     WDTCSR |= 0b00011000;
     WDTCSR =  0b01000000 | WDT_1S_MASK;
@@ -1267,18 +1237,15 @@ int setupBLE()
 
 // Configure the BlueTooth module with a name.
 // from LimiTTer setp() moved to here
-void configBLE(boolean do_renew) {
+void configBLE() {
   String name;
 
   send_string(F("AT"), 500);            // cut BLE connection to do commands
 
-  if ( do_renew ) {
-    send_ble_string(F("AT+RENEW"), 0);    // restore factory defaults
-    waitDoingServices(3000, 1);           // time to settle
-  }
+  //  send_ble_string(F("AT+RENEW"), 0);    // restore factory defaults
+  //  waitDoingServices(500, 1);            // time to settle
 
   // notify CONNECT and LOST
-  send_string(F("AT"), 500);            // cut BLE connection to do commands
   if ( send_ble_string(F("AT+NOTI1"), 0) ) {
     if ( strstr(at_answer, "+Set:1") != NULL ) {
       Serial.print(F(" AT command successfull"));
@@ -1294,22 +1261,14 @@ void configBLE(boolean do_renew) {
       resetBLE();
 #endif
   }
-  else {
-    print_state(F("command not succesfull - do a reset"));
-    resetFunc();
-  }
-  send_string(F("AT"), 500);            // cut BLE connection to do commands
   name = (String)"AT+NAME";
   name += (String)F(LNAME);
   send_ble_string(name, 0);             // set unique LimiTTer name, max 11 (not 12) chars
 
-  send_string(F("AT"), 500);            // cut BLE connection to do commands
   send_ble_string(F("AT+VERR?"), 0);    // look for correct BLE module - answer schould be "HMSoft V54x"
   // to detect fake modules which starts with 115200
-  send_string(F("AT"), 500);            // cut BLE connection to do commands
   send_ble_string(F("AT+ADDR?"), 0);    // get MAC address
 
-  send_string(F("AT"), 500);            // cut BLE connection to do commands
   send_ble_string(F("AT+RESET"), 0);    // reset the module
   waitDoingServices(500, 1);
 }
@@ -1343,9 +1302,9 @@ int wakeBLEUp(void)
   int wait_time;
 
   if ( cons_loop_wo_ble > 1 && cons_loop_wo_ble <= 18 ) {
-//#ifdef DB_PROCESSING
+#ifdef DB_PROCESSING
     print_state(F("")); Serial.print(cons_loop_wo_ble); Serial.print(F(" loops without BLE, wait 60 s for connect"));
-//#endif
+#endif
     wait_time = 60;
   }
   else {
@@ -1364,13 +1323,6 @@ int wakeBLEUp(void)
   // wait 1 s for initial connect, time for a fast BLE connect
   waitDoingServicesInterruptible(1000, &ble_connected, 1);
 
-  // if HM17 is puzzled do a factory reset after 30 min without valid BLE connection, 3 loops / 5 min
-#ifdef SAFETY_RENEW
-  if ( cons_loop_wo_ble == (3*6) ) {
-    configBLE(1);
-  }
-#endif
-  
 #ifdef ATRESET
   if ( !ble_connected ) {
     send_ble_string(F("AT+RESET"), 0);  // reset the BLE module
@@ -1433,13 +1385,6 @@ void shutBLEDown(boolean quit_ble)
 // new function to fit Limitter in xBridge concept, called from loop(), formerly in setup()
 void configNFC(void)
 {
-  // @JoernL/0.9.3 - power on BM019 only when BLE is up and running
-  digitalWrite(IRQPin, HIGH);
-  digitalWrite(SSPin, HIGH);
-  digitalWrite(NFCPin1, HIGH);
-  digitalWrite(NFCPin2, HIGH);
-  digitalWrite(NFCPin3, HIGH);
-
   SPI.begin();
 
   SPI.setDataMode(SPI_MODE0);
@@ -1553,12 +1498,14 @@ int send_ble_string(String cmd, boolean connect_state)
       while ( (millis() - nnow) < 2000 ) {
         waitDoingServices(30, 1);
         if ( ble_answer == 2 ) {
+
           // show the BLE answer received in 2 s after AT command sended
           j = 0;
           Serial.print(F("\r\n("));
           while ( at_answer[j] != 0 )
             Serial.print(at_answer[j++]);
           Serial.print(F(")"));
+
           ble_answer = 0;
           timeout = 0;
           break;
@@ -1566,6 +1513,7 @@ int send_ble_string(String cmd, boolean connect_state)
       }
       // wait additional 500 ms to be sure for next command
       waitDoingServices(500, 1);
+
       if ( timeout ) {
         resetBLE();             // in case of timeout try to hard reset the HM-1x
       }
@@ -2085,8 +2033,6 @@ int get_nfc_reading(float *ptr)
   // set the return code to timeout indication, as it is the most likely outcome.
   float act_glucose;
 
-  print_state(F("read the sensor"));
-
   // while we haven't reached the delay......
   while ( (millis() - start) < ms ) {
     if (NFCReady == 0) {
@@ -2098,10 +2044,8 @@ int get_nfc_reading(float *ptr)
       for (int i = 0; i < 3; i++) {
         Inventory_Command(); // sensor in range?
         nfc_inv_cmd_count++;
-        if (NFCReady == 2) {
-          Serial.print(F(" - sensor found"));
+        if (NFCReady == 2)
           break;
-        }
         waitDoingServices(1000, 1);
       }
       if (NFCReady == 1) {
@@ -2128,6 +2072,15 @@ int get_nfc_reading(float *ptr)
 */
       if ( readSuccessful ) {
         nfc_scan_count++;
+#ifdef SHOW_LIMITTER
+        Serial.print(F("\r\nGlucose level: ")); Serial.println(act_glucose);
+        Serial.println(F("15 minutes-trend: "));
+        for (int i = 0; i < 16; i++)
+          Serial.println(trend[i]);
+        Serial.print(F("Battery level: ")); Serial.print(batteryPcnt); Serial.println(F("%"));
+        Serial.print(F("Battery mVolts: ")); Serial.print(batteryMv); Serial.println(F("mV"));
+        Serial.print(F("Sensor lifetime: ")); Serial.print(sensorMinutesElapse); Serial.print(F(" minutes elapsed"));
+#endif /* SHOW_LIMITTER */
         // only for showing package content
         *ptr = act_glucose;
         return (1);
@@ -2261,8 +2214,7 @@ void print_start_message(void)
   print_state(F(" --- RELEASE version settings ---"));
 #endif
   print_state(F(" --- BLE Name: ")); Serial.print(F(LNAME)); Serial.print(F(" ---"));
-  print_state(F(" --- Version: ")); Serial.print(F(LB_VERSION)); Serial.print(F(LB_MINOR_VERSION)); Serial.print(F(" from "));
-    Serial.print(F(LB_DATETIME)); Serial.print(F(" ---"));
+  print_state(F(" --- Version: ")); Serial.print(F(LVERSION)); Serial.print(F(" ---"));
   print_state(F(" --- avail. mem: ")); Serial.print(freeMemory()); Serial.print(F(" ---"));
   print_state(F(" --- queue size: ")); Serial.print(DXQUEUESIZE/12); Serial.print(F(" h"));
 #ifdef REMOVE_SPIKES
@@ -2273,9 +2225,6 @@ void print_start_message(void)
 #endif
 #ifdef SIMU_BG
   print_state(F(" --- debug option enabled: add ramp function to BG readings"));
-#endif
-#ifdef HW_BLE
-  print_state(F(" --- HW BLE detection"));
 #endif
   print_state(F(" ------------------------------------------------------------------"));
 }
@@ -2314,8 +2263,6 @@ void print_statistics2()
       loop_state = NORMAL;
       break;
   }
-
-/*  
   Serial.print(F(" === "));
   Serial.print(F(" run time ")); Serial.print(prg_run_time); Serial.print(F(" s === "));
   Serial.print(F(" next normal wakeup ")); Serial.print(next_normal_wakeup); Serial.print(F(" s === Bat: "));
@@ -2345,8 +2292,6 @@ void print_statistics2()
     Serial.print(F(" s no NFC readed: "));  Serial.print(no_nfc_reading);
     Serial.print(F(" BG is NULL: "));  Serial.print(bg_is_null);
   }
-*/
-
 /*
   Serial.print(F("\r\n *** run time: ")); Serial.print(prg_run_time*1000);
   Serial.print(F(", arduino_ontime: ")); Serial.print(arduino_ontime);
@@ -2412,11 +2357,7 @@ void loop(void)
   }
 
   waitDoingServices(2000, 1); // wait for possible OK+LOST
-#ifdef INIT_WITH_RENEW
-  configBLE(1);                // configure the BLE module
-#else
-  configBLE(0);                // configure the BLE module without AT+RENEW
-#endif
+  configBLE();                // configure the BLE module
   configNFC();                // initialize and configure the NFC module
 
   // wait for a BLE connection to xDrip to get a TXID if needed

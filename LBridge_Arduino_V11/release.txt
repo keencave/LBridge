@@ -1,0 +1,1 @@
+Please use the Arduino IDE 1.8.9. The INO need to have the Libre2 library "L2read.zip" installed as a zip library with the IDE. Some minor fixes. Added support for Libre Pro (and Libre H). Any test result welcome. I had only an expired Libre Pro for test.
